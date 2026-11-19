@@ -22,10 +22,9 @@
     return R;
   }
 
-  // Li <- Li + k Lj, with i != j
+  // Li <- Li + k Lj, with i != j (any scalar k)
   function addMultiple(M, i, j, k) {
     if (i === j) throw new RangeError('same-row');
-    if (k.isZero()) throw new RangeError('zero-scalar');
     const R = copy(M);
     R[i] = R[i].map((x, c) => x.add(k.mul(M[j][c])));
     return R;
@@ -33,7 +32,7 @@
 
   function apply(M, op) {
     if (op.type === 'swap') return swap(M, op.i, op.j);
-    if (op.type === 'scale') return scale(M, op.i, op.k);
+    if (op.type === 'mul') return scale(M, op.i, op.k);
     if (op.type === 'add') return addMultiple(M, op.i, op.j, op.k);
     throw new Error('unknown operation');
   }

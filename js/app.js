@@ -6,17 +6,21 @@
 
   const MAX = 8;
   const $ = (id) => document.getElementById(id);
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const D = (ms) => (reduceMotion ? 1 : ms); // animation durations
 
   // ---------------- State ----------------
   const state = {
     lang: initialLang(),
+    mode: 'manual',          // 'manual' | 'random'
     rows: 3,
     cols: 4,
     augmented: true,
-    values: Array.from({ length: MAX }, () => Array(MAX).fill('')), // setup inputs (strings)
-    steps: [],      // [{ M, ids, op }], op === null for the initial matrix
-    pointer: 0,     // index of the step currently shown
-    opType: 'swap'
+    entries: Array.from({ length: MAX }, () => Array(MAX).fill('')), // text typed on the pad
+    steps: [],               // [{ M, ids, op }]; steps[0] is the initial matrix (op = null)
+    op: null,                // operation being built: { type, slots: [{ kind, value }], active }
+    busy: false              // true while an animation runs
   };
 
   function initialLang() {
@@ -27,14 +31,12 @@
     return (navigator.language || 'pt').toLowerCase().startsWith('pt') ? 'pt' : 'en';
   }
   const t = (key) => I18N[state.lang][key];
-  const current = () => state.steps[state.pointer];
+  const current = () => state.steps[state.steps.length - 1];
+  const isAug = () => state.steps.length ? state.steps[0].augmented : state.augmented && state.cols > 1;
 
   // ---------------- Formatting ----------------
-  const SUB = '₀₁₂₃₄₅₆₇₈₉';
-  const subDigits = (n) => String(n).replace(/\d/g, (d) => SUB[d]);
-  const rowText = (i) => t('row') + subDigits(i + 1);              // for <option>
-  const rowHTML = (i) => t('row') + '<sub>' + (i + 1) + '</sub>';
   const MINUS = '\u2212';
+  const rowHTML = (i) => t('row') + '<sub>' + (i + 1) + '</sub>';
 
   function fracHTML(q) {
     const neg = q.sign() < 0;
@@ -43,179 +45,267 @@
     return (neg ? '<span class="neg">' + MINUS + '</span>' : '') +
       '<span class="frac"><span>' + a.num + '</span><span>' + a.den + '</span></span>';
   }
-  // Coefficient written in front of a row: 1 is omitted.
   const coefHTML = (absK) => (absK.isOne() ? '' : fracHTML(absK));
-  const coefLatex = (absK) => (absK.isOne() ? '' : absK.toLatex());
 
+  // Standard notation, e.g. L2 ← L2 − 3L1
   function opHTML(op) {
     if (op.type === 'swap') return rowHTML(op.i) + ' ↔ ' + rowHTML(op.j);
-    if (op.type === 'scale') {
-      return rowHTML(op.i) + ' ← ' + (op.k.sign() < 0 ? MINUS : '') + coefHTML(op.k.abs()) + rowHTML(op.i);
-    }
-    return rowHTML(op.i) + ' ← ' + rowHTML(op.i) + (op.k.sign() < 0 ? ' ' + MINUS + ' ' : ' + ') +
-      coefHTML(op.k.abs()) + rowHTML(op.j);
+    if (op.type === 'mul') return rowHTML(op.i) + ' ← ' + (op.k.sign() < 0 ? MINUS : '') + coefHTML(op.k.abs()) + rowHTML(op.i);
+    if (op.k.isZero()) return rowHTML(op.i) + ' ← ' + rowHTML(op.i) + ' + 0' + rowHTML(op.j);
+    return rowHTML(op.i) + ' ← ' + rowHTML(op.i) + (op.k.sign() < 0 ? ' ' + MINUS + ' ' : ' + ') + coefHTML(op.k.abs()) + rowHTML(op.j);
   }
-
   function opLatex(op) {
     const R = (i) => t('row') + '_{' + (i + 1) + '}';
+    const c = (absK) => (absK.isOne() ? '' : absK.toLatex());
     if (op.type === 'swap') return R(op.i) + ' \\leftrightarrow ' + R(op.j);
-    if (op.type === 'scale') {
-      return R(op.i) + ' \\leftarrow ' + (op.k.sign() < 0 ? '-' : '') + coefLatex(op.k.abs()) + R(op.i);
-    }
-    return R(op.i) + ' \\leftarrow ' + R(op.i) + (op.k.sign() < 0 ? ' - ' : ' + ') + coefLatex(op.k.abs()) + R(op.j);
+    if (op.type === 'mul') return R(op.i) + ' \\leftarrow ' + (op.k.sign() < 0 ? '-' : '') + c(op.k.abs()) + R(op.i);
+    if (op.k.isZero()) return R(op.i) + ' \\leftarrow ' + R(op.i) + ' + 0' + R(op.j);
+    return R(op.i) + ' \\leftarrow ' + R(op.i) + (op.k.sign() < 0 ? ' - ' : ' + ') + c(op.k.abs()) + R(op.j);
   }
-
   function matrixLatex(M, aug) {
     const n = M[0].length;
-    const spec = aug && n > 1 ? 'c'.repeat(n - 1) + '|c' : 'c'.repeat(n);
-    const body = M.map((r) => r.map((x) => x.toLatex()).join(' & ')).join(' \\\\ ');
-    return '\\left[\\begin{array}{' + spec + '} ' + body + ' \\end{array}\\right]';
+    const spec = aug ? 'c'.repeat(n - 1) + '|c' : 'c'.repeat(n);
+    return '\\left[\\begin{array}{' + spec + '} ' + M.map((r) => r.map((x) => x.toLatex()).join(' & ')).join(' \\\\ ') + ' \\end{array}\\right]';
   }
+
+  // ---------------- Views ----------------
+  const VIEWS = ['home', 'size', 'entry', 'work'];
+  function show(id) {
+    VIEWS.forEach((v) => { $(v).hidden = v !== id; });
+    const el = $(id);
+    el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+    window.scrollTo({ top: 0 });
+  }
+  document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', () => { closePad(); show(b.dataset.back); }));
+  $('homeBtn').addEventListener('click', () => { if (state.busy) return; closePad(); cancelOp(); show('home'); });
 
   // ---------------- Language ----------------
   function applyLang() {
     document.documentElement.lang = state.lang;
     document.title = t('title');
     document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
-    document.querySelectorAll('[data-i18n-title]').forEach((el) => { el.title = t(el.dataset.i18nTitle); });
+    document.querySelectorAll('[data-i18n-title]').forEach((el) => {
+      el.title = t(el.dataset.i18nTitle); el.setAttribute('aria-label', t(el.dataset.i18nTitle));
+    });
     document.querySelectorAll('.lang button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.lang === state.lang)));
-    const L = t('row');
-    $('symSwap').innerHTML = L + '<sub>i</sub> ↔ ' + L + '<sub>j</sub>';
-    $('symScale').innerHTML = L + '<sub>i</sub> ← k' + L + '<sub>i</sub>';
-    $('symAdd').innerHTML = L + '<sub>i</sub> ← ' + L + '<sub>i</sub> + k' + L + '<sub>j</sub>';
-    $('setupError').textContent = '';
     $('opError').textContent = '';
-    if (state.steps.length) { fillSelects(); renderMatrix(false); renderHistory(); renderStatus(); updatePreview(); }
+    if (state.steps.length) { renderMatrix(); renderStatus(false); renderHistory(); }
+    if (state.op) renderSentence();
   }
-
   document.querySelectorAll('.lang button').forEach((b) => b.addEventListener('click', () => {
     state.lang = b.dataset.lang;
     try { localStorage.setItem('gauss-lang', state.lang); } catch (e) { /* ignore */ }
     applyLang();
   }));
 
-  // ---------------- Setup view ----------------
-  function buildInputGrid() {
-    const g = $('inputGrid');
-    const { rows, cols, augmented } = state;
-    const tpl = [];
-    for (let c = 0; c < cols; c++) {
-      if (augmented && cols > 1 && c === cols - 1) tpl.push('6px');
-      tpl.push('auto');
+  // ---------------- Home and size ----------------
+  $('chooseManual').addEventListener('click', () => { state.mode = 'manual'; openSize(); });
+  $('chooseRandom').addEventListener('click', () => { state.mode = 'random'; openSize(); });
+  function openSize() {
+    $('randomSizeBtn').hidden = state.mode !== 'random';
+    $('sizeNext').textContent = state.mode === 'random' ? t('start') : t('continue');
+    renderSize();
+    show('size');
+  }
+  function renderSize() {
+    $('rowsOut').textContent = state.rows;
+    $('colsOut').textContent = state.cols;
+    // Small drawing of the matrix shape
+    const m = state.rows, n = state.cols, s = 14, g = 4;
+    const aug = state.augmented && n > 1;
+    const w = n * s + (n - 1) * g + (aug ? 8 : 0) + 20, h = m * s + (m - 1) * g + 8;
+    const svg = $('sizePreview');
+    svg.setAttribute('width', w); svg.setAttribute('height', h);
+    let html = `<path d="M6 0H1v${h}h5M${w - 6} 0h5v${h}h-5"/>`;
+    for (let r = 0; r < m; r++) {
+      for (let c = 0; c < n; c++) {
+        const x = 10 + c * (s + g) + (aug && c === n - 1 ? 8 : 0);
+        html += `<rect x="${x}" y="${4 + r * (s + g)}" width="${s}" height="${s}" rx="3"/>`;
+      }
     }
+    if (aug) { const x = 10 + (n - 1) * (s + g) + 2; html += `<path d="M${x} 2v${h - 4}" style="stroke-width:1.2"/>`; }
+    svg.innerHTML = html;
+  }
+  document.querySelectorAll('[data-step]').forEach((b) => b.addEventListener('click', () => {
+    const [what, d] = b.dataset.step.split(':');
+    state[what] = Math.min(MAX, Math.max(1, state[what] + Number(d)));
+    renderSize();
+  }));
+  $('augmented').addEventListener('change', (e) => { state.augmented = e.target.checked; renderSize(); });
+
+  const randInt = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+  function randomMatrix(m, n) {
+    return Array.from({ length: m }, () => Array.from({ length: n }, () => new F(randInt(-6, 6))));
+  }
+  $('sizeNext').addEventListener('click', () => {
+    if (state.mode === 'random') startWith(randomMatrix(state.rows, state.cols));
+    else { buildEntryGrid(); show('entry'); }
+  });
+  $('randomSizeBtn').addEventListener('click', async () => {
+    state.rows = randInt(2, 4);
+    state.cols = randInt(state.augmented ? 3 : 2, 5);
+    renderSize();
+    [$('rowsOut'), $('colsOut')].forEach((o) => o.animate([{ transform: 'scale(1.4)' }, { transform: 'none' }], { duration: D(350) }));
+    await wait(D(450));
+    startWith(randomMatrix(state.rows, state.cols));
+  });
+
+  // ---------------- Manual entry ----------------
+  function buildEntryGrid() {
+    const g = $('entryGrid');
+    const { rows, cols } = state;
+    const aug = state.augmented && cols > 1;
+    const tpl = [];
+    for (let c = 0; c < cols; c++) { if (aug && c === cols - 1) tpl.push('8px'); tpl.push('auto'); }
     g.style.gridTemplateColumns = tpl.join(' ');
     g.innerHTML = '';
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        if (augmented && cols > 1 && c === cols - 1) {
-          const s = document.createElement('div');
-          s.className = 'sep';
-          g.appendChild(s);
-        }
-        const inp = document.createElement('input');
-        inp.value = state.values[r][c];
-        inp.placeholder = '0';
-        inp.inputMode = 'text';
-        inp.spellcheck = false;
-        inp.setAttribute('aria-label', 'a' + (r + 1) + ',' + (c + 1));
-        inp.dataset.r = r; inp.dataset.c = c;
-        inp.addEventListener('input', () => {
-          state.values[r][c] = inp.value;
-          inp.classList.remove('invalid');
-          $('setupError').textContent = '';
-        });
-        inp.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') { e.preventDefault(); start(); }
-        });
-        g.appendChild(inp);
+        if (aug && c === cols - 1) { const s = document.createElement('div'); s.className = 'sep'; g.appendChild(s); }
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'entry-cell';
+        b.dataset.r = r; b.dataset.c = c;
+        b.setAttribute('aria-label', 'a' + (r + 1) + (c + 1));
+        b.addEventListener('click', () => editEntry(r, c));
+        g.appendChild(b);
+        paintEntry(r, c);
       }
     }
-    $('rowsOut').textContent = rows;
-    $('colsOut').textContent = cols;
+    $('entryError').textContent = '';
   }
-
-  document.querySelectorAll('[data-step]').forEach((b) => b.addEventListener('click', () => {
-    const [what, d] = b.dataset.step.split(':');
-    state[what] = Math.min(MAX, Math.max(1, state[what] + Number(d)));
-    buildInputGrid();
-  }));
-  $('augmented').addEventListener('change', (e) => { state.augmented = e.target.checked; buildInputGrid(); });
-
-  $('randomBtn').addEventListener('click', () => {
-    for (let r = 0; r < state.rows; r++) {
-      for (let c = 0; c < state.cols; c++) state.values[r][c] = String(Math.floor(Math.random() * 13) - 6);
-    }
-    buildInputGrid();
-  });
-  $('clearBtn').addEventListener('click', () => {
-    state.values.forEach((row) => row.fill(''));
-    buildInputGrid();
-    $('inputGrid').querySelector('input').focus();
-  });
-
-  function start() {
+  const entryCell = (r, c) => $('entryGrid').querySelector(`[data-r="${r}"][data-c="${c}"]`);
+  function paintEntry(r, c) {
+    const b = entryCell(r, c);
+    const s = state.entries[r][c];
+    if (s === '') { b.textContent = '0'; b.classList.add('empty'); }
+    else { b.innerHTML = '<span>' + fracHTML(F.parseInput(s).value) + '</span>'; b.classList.remove('empty'); }
+  }
+  function editEntry(r, c) {
+    $('entryGrid').querySelectorAll('.entry-cell').forEach((x) => x.classList.remove('active'));
+    entryCell(r, c).classList.add('active');
+    openPad({
+      text: state.entries[r][c],
+      allowEmpty: true,
+      onOk: (value, text) => {
+        state.entries[r][c] = text;
+        paintEntry(r, c);
+        // move on to the next entry
+        let nr = r, nc = c + 1;
+        if (nc >= state.cols) { nc = 0; nr++; }
+        if (nr < state.rows) editEntry(nr, nc);
+        else entryCell(r, c).classList.remove('active');
+      },
+      onClose: () => entryCell(r, c) && entryCell(r, c).classList.remove('active')
+    });
+  }
+  $('entryDone').addEventListener('click', () => {
+    closePad();
     const M = [];
-    let ok = true;
     for (let r = 0; r < state.rows; r++) {
       const row = [];
       for (let c = 0; c < state.cols; c++) {
-        const s = state.values[r][c].trim();
-        const q = s === '' ? F.ZERO : F.parse(s);
-        if (q === null) {
-          ok = false;
-          $('inputGrid').querySelector(`input[data-r="${r}"][data-c="${c}"]`).classList.add('invalid');
-        }
-        row.push(q);
+        const s = state.entries[r][c];
+        row.push(s === '' ? F.ZERO : F.parseInput(s).value);
       }
       M.push(row);
     }
-    if (!ok) { $('setupError').textContent = t('errCells'); return; }
-    state.steps = [{ M, ids: M.map((_, i) => i), op: null, augmented: state.augmented && state.cols > 1 }];
-    state.pointer = 0;
-    $('setup').hidden = true;
-    $('work').hidden = false;
-    retrigger($('work'));
-    fillSelects();
-    renderMatrix(false);
-    renderHistory();
-    renderStatus();
-    updatePreview();
-  }
-  $('startBtn').addEventListener('click', start);
-
-  $('newBtn').addEventListener('click', () => {
-    $('work').hidden = true;
-    $('setup').hidden = false;
-    retrigger($('setup'));
-    buildInputGrid();
+    startWith(M);
   });
 
-  function retrigger(el) { el.style.animation = 'none'; void el.offsetWidth; el.style.animation = ''; }
+  // ---------------- Number pad ----------------
+  let pad = null; // { text, allowEmpty, validate, onOk, onClose }
+  function openPad(opts) {
+    pad = Object.assign({ text: '', allowEmpty: false }, opts);
+    $('pad').hidden = false; $('padBackdrop').hidden = false;
+    $('padError').textContent = '';
+    renderPad();
+  }
+  function closePad(silent) {
+    if (!pad) return;
+    const p = pad; pad = null;
+    $('pad').hidden = true; $('padBackdrop').hidden = true;
+    if (!silent && p.onClose) p.onClose();
+  }
+  function renderPad() {
+    $('padDisplay').innerHTML = escapeHTML(pad.text.replace(/-/g, MINUS)) + '<span class="caret"></span>';
+  }
+  function escapeHTML(s) { return s.replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch])); }
+  function padError(key) {
+    $('padError').textContent = t(key);
+    const p = $('pad');
+    p.classList.remove('shake'); void p.offsetWidth; p.classList.add('shake');
+  }
+  function padKey(key) {
+    if (!pad) return;
+    $('padError').textContent = '';
+    let s = pad.text;
+    if (key === 'back') s = s.slice(0, -1);
+    else if (key === '-') s = s.startsWith('-') ? s.slice(1) : '-' + s;   // the sign goes in front
+    else if (key === '/') { if (/\d$/.test(s) && !s.includes('/')) s += '/'; }
+    else if (key === 'ok') return padOk();
+    else if (/^\d$/.test(key) && s.replace(/\D/g, '').length < 12) s += key;
+    pad.text = s;
+    renderPad();
+  }
+  function padOk() {
+    const p = pad;
+    if (p.text === '' || p.text === '-') {
+      if (!p.allowEmpty) return padError('errNumber');
+      closePad(true); p.onOk(null, ''); return;
+    }
+    const res = F.parseInput(p.text);
+    if (res.error) return padError(res.error);
+    const err = p.validate && p.validate(res.value);
+    if (err) return padError(err);
+    closePad(true);
+    p.onOk(res.value, p.text);
+  }
+  document.querySelectorAll('.pad-keys button').forEach((b) => b.addEventListener('click', () => padKey(b.dataset.key)));
+  $('padBackdrop').addEventListener('click', () => closePad());
 
-  // ---------------- Matrix rendering (with FLIP animation) ----------------
-  function renderMatrix(animate) {
+  document.addEventListener('keydown', (e) => {
+    if (pad) {
+      if (/^\d$/.test(e.key)) padKey(e.key);
+      else if (e.key === '-' || e.key === '\u2212') padKey('-');
+      else if (e.key === '/') padKey('/');
+      else if (e.key === 'Backspace') padKey('back');
+      else if (e.key === 'Enter') padKey('ok');
+      else if (e.key === 'Escape') closePad();
+      else return;
+      e.preventDefault();
+      return;
+    }
+    if ($('work').hidden || $('stepsDialog').open) return;
+    if (e.key === 'Escape' && state.op) cancelOp();
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
+  });
+
+  // ---------------- Work view ----------------
+  function startWith(M) {
+    state.steps = [{ M, ids: M.map((_, i) => i), op: null, augmented: state.augmented && M[0].length > 1 }];
+    state.op = null;
+    $('opPanel').hidden = true;
+    show('work');
+    renderMatrix();
+    renderOpButtons();
+    renderStatus(false);
+    renderHistory();
+  }
+
+  function renderMatrix(flip) {
     const box = $('matrix');
     const { M, ids } = current();
-    const aug = state.steps[0].augmented;
+    const aug = isAug();
     const m = M.length, n = M[0].length;
 
-    // Remember where each row was and what it contained.
     const before = new Map();
-    if (animate) {
-      box.querySelectorAll('.mrow').forEach((el) => {
-        before.set(el.dataset.id, { top: el.getBoundingClientRect().top, text: el.dataset.content });
-      });
-    }
+    if (flip) box.querySelectorAll('.mrow').forEach((el) => before.set(el.dataset.id, { top: el.getBoundingClientRect().top, text: el.dataset.content }));
 
-    const tpl = ['auto', '8px'];
-    for (let c = 0; c < n; c++) {
-      if (aug && c === n - 1) tpl.push('14px');
-      tpl.push('auto');
-    }
-    tpl.push('8px');
+    const tpl = ['auto', '9px'];
+    for (let c = 0; c < n; c++) { if (aug && c === n - 1) tpl.push('16px'); tpl.push('auto'); }
+    tpl.push('9px');
     box.style.gridTemplateColumns = tpl.join(' ');
     box.innerHTML = '';
-
     M.forEach((row, r) => {
       const el = document.createElement('div');
       el.className = 'mrow';
@@ -228,196 +318,366 @@
         if (aug && c === n - 1) html += '<span></span>';
         html += '<span class="cell">' + fracHTML(x) + '</span>';
       });
-      html += '<span></span>';
-      el.innerHTML = html;
+      el.innerHTML = html + '<span></span>';
+      el.addEventListener('click', () => onRowClick(r));
       box.appendChild(el);
     });
-
     const span = '1 / ' + (m + 1);
-    const lb = document.createElement('div');
-    lb.className = 'bracket l'; lb.style.gridColumn = '2'; lb.style.gridRow = span;
-    const rb = document.createElement('div');
-    rb.className = 'bracket r'; rb.style.gridColumn = String(tpl.length); rb.style.gridRow = span;
-    box.append(lb, rb);
-    if (aug) {
-      const v = document.createElement('div');
-      v.className = 'vsep'; v.style.gridColumn = String(n + 2); v.style.gridRow = span;
-      box.appendChild(v);
-    }
+    const add = (cls, col) => { const d = document.createElement('div'); d.className = cls; d.style.gridColumn = String(col); d.style.gridRow = span; box.appendChild(d); };
+    add('bracket l', 2);
+    add('bracket r', tpl.length);
+    if (aug) add('vsep', n + 2);
+    paintChosen();
 
-    if (!animate) return;
+    if (!flip) return;
     box.querySelectorAll('.mrow').forEach((el) => {
       const old = before.get(el.dataset.id);
       if (!old) return;
       const dy = old.top - el.getBoundingClientRect().top;
       if (Math.abs(dy) > 0.5) {
-        el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }],
-          { duration: 450, easing: 'cubic-bezier(.2,.8,.2,1)' });
+        el.style.zIndex = dy > 0 ? 3 : 2;
+        el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: D(450), easing: 'cubic-bezier(.2,.8,.2,1)' })
+          .finished.then(() => { el.style.zIndex = ''; });
       } else if (old.text !== el.dataset.content) {
-        el.animate([{ backgroundColor: flashColor() }, { backgroundColor: 'transparent' }],
-          { duration: 900, easing: 'ease-out' });
-        el.querySelectorAll('.cell').forEach((cell) => cell.animate(
-          [{ opacity: 0.2, transform: 'translateY(-4px)' }, { opacity: 1, transform: 'none' }],
-          { duration: 350, easing: 'ease-out' }));
+        flashRow(el);
       }
     });
   }
-  function flashColor() {
-    return getComputedStyle(document.documentElement).getPropertyValue('--accent-soft').trim() || 'rgba(47,93,138,.15)';
+  const rowEl = (r) => $('matrix').querySelector(`.mrow[data-index="${r}"]`);
+  function flashRow(el) {
+    const color = getComputedStyle(document.documentElement).getPropertyValue('--accent-soft').trim();
+    el.animate([{ backgroundColor: color }, { backgroundColor: 'rgba(0,0,0,0)' }], { duration: D(900), easing: 'ease-out' });
   }
 
-  function renderStatus() {
+  function renderStatus(celebrate) {
     const M = current().M;
-    const key = Ops.isReducedRowEchelon(M) ? 'rref' : Ops.isRowEchelon(M) ? 'ref' : null;
-    $('status').innerHTML = key ? '<span>' + t(key) + '</span>' : '';
+    const el = $('status');
+    if (Ops.isReducedRowEchelon(M)) {
+      el.innerHTML = '<span class="msg rref"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' + t('rref') + '</span>';
+      if (celebrate) celebrateMatrix();
+    } else if (Ops.isRowEchelon(M)) {
+      el.innerHTML = '<span class="msg ref"><svg viewBox="0 0 24 24"><path d="M4 19h5v-5h5V9h5V4"/></svg>' + t('ref') + '</span>';
+    } else el.innerHTML = '';
   }
 
-  // ---------------- History ----------------
+  // ---------------- Building an operation ----------------
+  const SLOT_KINDS = { add: ['row', 'num', 'row'], mul: ['row', 'num'], swap: ['row', 'row'] };
+  const SENTENCE = { add: 'sentAdd', mul: 'sentMul', swap: 'sentSwap' };
+
+  document.querySelectorAll('.op-btn').forEach((b) => b.addEventListener('click', () => {
+    if (state.busy) return;
+    if (state.op && state.op.type === b.dataset.op) { cancelOp(); return; }
+    state.op = { type: b.dataset.op, slots: SLOT_KINDS[b.dataset.op].map((kind) => ({ kind, value: null })), active: 0 };
+    $('opPanel').hidden = false;
+    $('opError').textContent = '';
+    renderOpButtons();
+    setActive(0);
+  }));
+  function renderOpButtons() {
+    document.querySelectorAll('.op-btn').forEach((b) => {
+      b.setAttribute('aria-pressed', String(!!state.op && state.op.type === b.dataset.op));
+      b.disabled = current().M.length < 2 && b.dataset.op !== 'mul';
+    });
+  }
+  function cancelOp() {
+    closePad(true);
+    state.op = null;
+    $('opPanel').hidden = true;
+    $('matrix').classList.remove('picking');
+    renderOpButtons();
+    paintChosen();
+  }
+
+  function renderSentence() {
+    const op = state.op;
+    const box = $('sentence');
+    box.innerHTML = '';
+    t(SENTENCE[op.type]).forEach((part) => {
+      if (typeof part === 'string') {
+        const s = document.createElement('span'); s.textContent = part; box.appendChild(s); return;
+      }
+      const slot = op.slots[part];
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'slot ' + slot.kind + '-slot' + (slot.value !== null ? ' filled' : '') + (op.active === part ? ' active' : '');
+      b.innerHTML = '<span>' + (slot.value === null ? '&nbsp;' : slot.kind === 'row' ? rowHTML(slot.value) : fracHTML(slot.value)) + '</span>';
+      b.addEventListener('click', () => { if (!state.busy) setActive(part); });
+      box.appendChild(b);
+    });
+    const done = op.slots.every((s) => s.value !== null);
+    $('opApply').disabled = !done;
+    $('notation').innerHTML = done ? opHTML(buildOp()) : '';
+    $('matrix').classList.toggle('picking', op.active >= 0 && op.slots[op.active].kind === 'row');
+    paintChosen();
+  }
+
+  function setActive(idx) {
+    const op = state.op;
+    op.active = idx;
+    renderSentence();
+    if (idx >= 0 && op.slots[idx].kind === 'num') {
+      const slot = op.slots[idx];
+      openPad({
+        text: slot.value === null ? '' : slot.value.toString(),
+        validate: (v) => (op.type === 'mul' && v.isZero() ? 'errZero' : null),
+        onOk: (v) => { slot.value = v; advance(); },
+        onClose: () => { op.active = -1; renderSentence(); }
+      });
+    } else closePad(true);
+  }
+  function advance() {
+    const op = state.op;
+    const n = op.slots.length;
+    for (let k = 1; k <= n; k++) {
+      const idx = (Math.max(op.active, 0) + k) % n;
+      if (op.slots[idx].value === null) return setActive(idx);
+    }
+    setActive(-1);
+    $('opApply').focus({ preventScroll: true });
+  }
+
+  function onRowClick(r) {
+    const op = state.op;
+    if (!op || state.busy || op.active < 0 || op.slots[op.active].kind !== 'row') return;
+    // The two rows of "add" and "swap" must be different.
+    const other = op.slots.find((s, idx) => idx !== op.active && s.kind === 'row');
+    if (other && other.value === r) {
+      $('opError').textContent = t('errSameRow');
+      const el = rowEl(r);
+      el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake');
+      return;
+    }
+    $('opError').textContent = '';
+    op.slots[op.active].value = r;
+    advance();
+  }
+
+  function paintChosen() {
+    const rows = $('matrix').querySelectorAll('.mrow');
+    rows.forEach((el) => el.classList.remove('chosen', 'chosen2'));
+    if (!state.op) return;
+    const rowSlots = state.op.slots.filter((s) => s.kind === 'row');
+    rowSlots.forEach((s, k) => { if (s.value !== null && rowEl(s.value)) rowEl(s.value).classList.add(k === 0 ? 'chosen' : 'chosen2'); });
+  }
+
+  function buildOp() {
+    const v = state.op.slots.map((s) => s.value);
+    if (state.op.type === 'add') return { type: 'add', i: v[2], j: v[0], k: v[1] };  // L_target ← L_target + k L_source
+    if (state.op.type === 'mul') return { type: 'mul', i: v[0], k: v[1] };
+    return { type: 'swap', i: v[0], j: v[1] };
+  }
+
+  $('opCancel').addEventListener('click', cancelOp);
+  $('opApply').addEventListener('click', applyOp);
+
+  async function applyOp() {
+    if (state.busy || !state.op || !state.op.slots.every((s) => s.value !== null)) return;
+    const op = buildOp();
+    const prev = current();
+    let M;
+    try { M = Ops.apply(prev.M, op); } catch (e) { $('opError').textContent = t(e.message === 'same-row' ? 'errSameRow' : 'errZero'); return; }
+    const ids = prev.ids.slice();
+    if (op.type === 'swap') [ids[op.i], ids[op.j]] = [ids[op.j], ids[op.i]];
+    const wasRREF = Ops.isReducedRowEchelon(prev.M);
+
+    cancelOp();
+    state.busy = true;
+    document.body.classList.add('busy');
+    try {
+      if (op.type === 'add') await animateAdd(op, M);
+      else if (op.type === 'mul') await animateMul(op, M);
+      state.steps.push({ M, ids, op });
+      renderMatrix(op.type === 'swap');
+      if (op.type === 'swap') await wait(D(470));
+    } finally {
+      state.busy = false;
+      document.body.classList.remove('busy');
+    }
+    renderOpButtons();
+    renderHistory();
+    renderStatus(!wasRREF);
+  }
+
+  // ---------------- Undo ----------------
+  function undo() {
+    if (state.busy || state.steps.length < 2) return;
+    cancelOp();
+    state.steps.pop();
+    renderMatrix(true);
+    renderOpButtons();
+    renderHistory();
+    renderStatus(false);
+  }
+  $('undoBtn').addEventListener('click', undo);
+
+  // ---------------- Animations ----------------
+  const stageBox = () => $('stage').getBoundingClientRect();
+
+  // A badge with the constant k slides across `cells`, changing each value as it passes.
+  async function sweep(container, cells, k, newHTML, duration) {
+    const stage = $('stage');
+    const sb = stageBox();
+    const cr = container.getBoundingClientRect();
+    const badge = document.createElement('div');
+    badge.className = 'k-badge';
+    badge.innerHTML = '<span>×&thinsp;' + (k.sign() < 0 ? '(' + fracHTML(k) + ')' : fracHTML(k)) + '</span>';
+    stage.appendChild(badge);
+    const bw = badge.offsetWidth, bh = badge.offsetHeight;
+    const y = cr.top - sb.top + cr.height / 2 - bh / 2;
+    const x0 = cr.left - sb.left - bw - 4;
+    const x1 = cr.right - sb.left + 4;
+    badge.style.left = '0px'; badge.style.top = y + 'px';
+    await badge.animate([{ transform: `translateX(${x0}px) scale(.3)`, opacity: 0 }, { transform: `translateX(${x0}px) scale(1)`, opacity: 1 }],
+      { duration: D(260), easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' }).finished;
+    const run = badge.animate([{ transform: `translateX(${x0}px)` }, { transform: `translateX(${x1}px)` }],
+      { duration: D(duration), easing: 'linear', fill: 'forwards' });
+    cells.forEach((cell, idx) => {
+      const r = cell.getBoundingClientRect();
+      const centre = r.left - sb.left + r.width / 2 - bw / 2;
+      const frac = Math.min(1, Math.max(0, (centre - x0) / (x1 - x0)));
+      setTimeout(() => {
+        cell.innerHTML = cell.parentElement.classList.contains('ghost-row') ? '<span>' + newHTML[idx] + '</span>' : newHTML[idx];
+        cell.animate([{ transform: 'scale(1.35)', opacity: 0.3 }, { transform: 'none', opacity: 1 }], { duration: D(320), easing: 'cubic-bezier(.2,.8,.2,1)' });
+      }, D(duration) * frac);
+    });
+    await run.finished;
+    await badge.animate([{ opacity: 1 }, { opacity: 0, transform: `translateX(${x1 + 12}px) scale(.6)` }], { duration: D(220), fill: 'forwards' }).finished;
+    badge.remove();
+  }
+
+  async function animateMul(op, newM) {
+    const row = rowEl(op.i);
+    row.classList.add('chosen');
+    const cells = [...row.querySelectorAll('.cell')];
+    await sweep(row, cells, op.k, newM[op.i].map(fracHTML), 650 + 90 * cells.length);
+    flashRow(row);
+    await wait(D(250));
+  }
+
+  async function animateAdd(op, newM) {
+    const stage = $('stage');
+    const sb = stageBox();
+    const src = rowEl(op.j), dst = rowEl(op.i);
+    const sr = src.getBoundingClientRect(), dr = dst.getBoundingClientRect();
+    const mr = $('matrix').getBoundingClientRect();
+    src.classList.add('chosen2'); dst.classList.add('chosen');
+
+    // 1. A copy of the source row lifts off...
+    const ghost = document.createElement('div');
+    ghost.className = 'ghost-row';
+    Object.assign(ghost.style, { left: sr.left - sb.left + 'px', top: sr.top - sb.top + 'px', width: sr.width + 'px', height: sr.height + 'px' });
+    const srcCells = [...src.querySelectorAll('.cell')];
+    const gCells = srcCells.map((c) => {
+      const r = c.getBoundingClientRect();
+      const g = document.createElement('span');
+      g.className = 'cell';
+      Object.assign(g.style, { left: r.left - sr.left + 'px', width: r.width + 'px' });
+      g.innerHTML = '<span>' + c.innerHTML + '</span>';
+      ghost.appendChild(g);
+      return g;
+    });
+    stage.appendChild(ghost);
+
+    // ...and jumps to the side of the matrix (or below it, on narrow screens).
+    const sideX = mr.right - sr.left + 40;
+    const fitsSide = sr.right + sideX + 8 < document.documentElement.clientWidth;
+    const park = fitsSide ? { x: sideX, y: 0 } : { x: 0, y: mr.bottom - sr.top + 26 };
+    await ghost.animate([
+      { transform: 'none', boxShadow: 'none' },
+      { transform: `translate(${park.x * 0.5}px, ${park.y * 0.5 - 28}px) scale(1.04)`, offset: 0.5 },
+      { transform: `translate(${park.x}px, ${park.y}px)` }
+    ], { duration: D(560), easing: 'cubic-bezier(.3,.7,.3,1)', fill: 'forwards' }).finished;
+    // Keep the parked position in normal layout so the badge can measure it.
+    ghost.getAnimations().forEach((a) => a.cancel());
+    ghost.style.transform = `translate(${park.x}px, ${park.y}px)`;
+
+    // 2. It is multiplied by k.
+    await wait(D(120));
+    await sweep(ghost, gCells, op.k, newM[op.i].map((_, c) => fracHTML(op.k.mul(current().M[op.j][c]))), 500 + 80 * gCells.length);
+    await wait(D(150));
+
+    // 3. It falls onto the target row, leaving the result.
+    const toY = dr.top - sr.top;
+    await ghost.animate([
+      { transform: `translate(${park.x}px, ${park.y}px)` },
+      { transform: `translate(${park.x * 0.45}px, ${Math.min(park.y, toY) - 34}px) scale(1.04)`, offset: 0.45 },
+      { transform: `translate(0px, ${toY}px) scale(1)` }
+    ], { duration: D(620), easing: 'cubic-bezier(.45,.05,.4,1)', fill: 'forwards' }).finished;
+    const dstCells = [...dst.querySelectorAll('.cell')];
+    dstCells.forEach((c, idx) => {
+      c.innerHTML = fracHTML(newM[op.i][idx]);
+      c.animate([{ transform: 'translateY(-6px)', opacity: 0.2 }, { transform: 'none', opacity: 1 }], { duration: D(380), easing: 'cubic-bezier(.2,.8,.2,1)' });
+    });
+    flashRow(dst);
+    await ghost.animate([{ opacity: 1 }, { opacity: 0, transform: `translate(0px, ${toY}px) scale(.96)` }], { duration: D(260), fill: 'forwards' }).finished;
+    ghost.remove();
+    await wait(D(200));
+  }
+
+  // The matrix "is happy": rows hop one after the other, the matrix bounces, and sparks fly.
+  function celebrateMatrix() {
+    if (reduceMotion) return;
+    const box = $('matrix');
+    box.querySelectorAll('.mrow').forEach((el, i) => {
+      el.animate([{ transform: 'none' }, { transform: 'translateY(-10px)' }, { transform: 'none' }],
+        { duration: 380, delay: 90 * i, easing: 'cubic-bezier(.3,.7,.4,1)' });
+    });
+    const m = box.querySelectorAll('.mrow').length;
+    box.animate([
+      { transform: 'none' },
+      { transform: 'scale(1.08) rotate(-2.5deg)' },
+      { transform: 'scale(.97) rotate(2deg)' },
+      { transform: 'scale(1.04) rotate(-1deg)' },
+      { transform: 'none' }
+    ], { duration: 900, delay: 90 * m + 150, easing: 'ease-in-out' });
+
+    const stage = $('stage');
+    const sb = stageBox();
+    const mr = box.getBoundingClientRect();
+    const cx = mr.left - sb.left + mr.width / 2, cy = mr.top - sb.top + mr.height / 2;
+    const css = getComputedStyle(document.documentElement);
+    const colors = ['--green', '--accent', '--orange', '--green'].map((v) => css.getPropertyValue(v).trim());
+    for (let s = 0; s < 22; s++) {
+      const d = document.createElement('div');
+      d.className = 'spark';
+      d.style.left = cx + 'px'; d.style.top = cy + 'px';
+      d.style.background = colors[s % colors.length];
+      stage.appendChild(d);
+      const ang = (Math.PI * 2 * s) / 22 + Math.random() * 0.3;
+      const dist = Math.max(mr.width, mr.height) / 2 + 30 + Math.random() * 50;
+      d.animate([
+        { transform: 'translate(-50%,-50%) scale(.4)', opacity: 0 },
+        { transform: `translate(calc(-50% + ${Math.cos(ang) * dist * 0.7}px), calc(-50% + ${Math.sin(ang) * dist * 0.7}px)) scale(1)`, opacity: 1, offset: 0.5 },
+        { transform: `translate(calc(-50% + ${Math.cos(ang) * dist}px), calc(-50% + ${Math.sin(ang) * dist}px)) scale(.3)`, opacity: 0 }
+      ], { duration: 1000, delay: 90 * m + 200, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'both' }).finished.then(() => d.remove());
+    }
+  }
+
+  // ---------------- Applied steps ----------------
   function renderHistory() {
+    const n = state.steps.length - 1;
+    $('stepsCount').textContent = n;
+    $('undoBtn').disabled = n === 0;
     const ol = $('history');
     ol.innerHTML = '';
-    state.steps.forEach((s, idx) => {
+    state.steps.slice(1).forEach((s, idx) => {
       const li = document.createElement('li');
-      if (idx === 0) { li.classList.add('first'); li.textContent = t('initial'); }
-      else li.innerHTML = '<span class="n">' + idx + '</span><span>' + opHTML(s.op) + '</span>';
-      if (idx === state.pointer) li.classList.add('current');
-      if (idx > state.pointer) li.classList.add('future');
-      li.style.animation = 'none';
-      li.addEventListener('click', () => goTo(idx));
+      li.innerHTML = '<span class="n">' + (idx + 1) + '</span><span>' + opHTML(s.op) + '</span>';
       ol.appendChild(li);
     });
-    const last = ol.lastElementChild;
-    if (last && state.pointer === state.steps.length - 1 && state.steps.length > 1) last.style.animation = '';
-    const cur = ol.children[state.pointer];
-    if (cur) cur.scrollIntoView({ block: 'nearest' });
-    $('undoBtn').disabled = state.pointer === 0;
-    $('redoBtn').disabled = state.pointer === state.steps.length - 1;
+    $('historyEmpty').hidden = n > 0;
+    $('latexBtn').disabled = n === 0;
   }
+  $('stepsBtn').addEventListener('click', () => { renderHistory(); $('stepsDialog').showModal(); });
+  $('stepsClose').addEventListener('click', () => $('stepsDialog').close());
+  $('stepsDialog').addEventListener('click', (e) => { if (e.target === $('stepsDialog')) $('stepsDialog').close(); });
 
-  function goTo(idx) {
-    if (idx < 0 || idx >= state.steps.length || idx === state.pointer) return;
-    state.pointer = idx;
-    $('opError').textContent = '';
-    renderMatrix(true);
-    renderHistory();
-    renderStatus();
-    updatePreview();
-  }
-  $('undoBtn').addEventListener('click', () => goTo(state.pointer - 1));
-  $('redoBtn').addEventListener('click', () => goTo(state.pointer + 1));
-
-  document.addEventListener('keydown', (e) => {
-    if ($('work').hidden || !(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return;
-    if (document.activeElement && document.activeElement.tagName === 'INPUT') return; // let inputs undo text
-    e.preventDefault();
-    goTo(state.pointer + (e.shiftKey ? 1 : -1));
-  });
-
-  // ---------------- Operation form ----------------
-  const sel = { swapI: $('swapI'), swapJ: $('swapJ'), scaleI: $('scaleI'), addI: $('addI'), addJ: $('addJ') };
-
-  function fillSelects() {
-    const m = current().M.length;
-    const defaults = { swapI: 0, swapJ: 1, scaleI: 0, addI: 1, addJ: 0 };
-    Object.entries(sel).forEach(([name, s]) => {
-      const prev = s.value === '' ? defaults[name] : Number(s.value);
-      s.innerHTML = '';
-      for (let i = 0; i < m; i++) {
-        const o = document.createElement('option');
-        o.value = i; o.textContent = rowText(i);
-        s.appendChild(o);
-      }
-      s.value = String(Math.min(prev, m - 1));
-    });
-    updateEchoes();
-  }
-  function updateEchoes() {
-    $('scaleEcho').innerHTML = rowHTML(Number(sel.scaleI.value));
-    $('addEcho').innerHTML = rowHTML(Number(sel.addI.value));
-  }
-
-  function setOpType(type) {
-    state.opType = type;
-    document.querySelectorAll('.op-tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.op === type)));
-    document.querySelector('.f-swap').hidden = type !== 'swap';
-    document.querySelector('.f-scale').hidden = type !== 'scale';
-    document.querySelector('.f-add').hidden = type !== 'add';
-    $('opError').textContent = '';
-    updatePreview();
-    const focusEl = type === 'scale' ? $('scaleK') : type === 'add' ? $('addK') : null;
-    if (focusEl && window.matchMedia('(pointer: fine)').matches) focusEl.focus();
-  }
-  document.querySelectorAll('.op-tabs button').forEach((b) => b.addEventListener('click', () => setOpType(b.dataset.op)));
-
-  // Highlight the rows involved in the chosen operation (same neutral colour for all).
-  function updatePreview() {
-    const rows = $('matrix').querySelectorAll('.mrow');
-    rows.forEach((el) => el.classList.remove('target', 'source'));
-    let target = [], source = [];
-    if (state.opType === 'swap') target = [sel.swapI.value, sel.swapJ.value];
-    else if (state.opType === 'scale') target = [sel.scaleI.value];
-    else { target = [sel.addI.value]; source = [sel.addJ.value]; }
-    rows.forEach((el) => {
-      if (target.includes(el.dataset.index)) el.classList.add('target');
-      else if (source.includes(el.dataset.index)) el.classList.add('source');
-    });
-  }
-  Object.values(sel).forEach((s) => s.addEventListener('change', () => { updateEchoes(); updatePreview(); $('opError').textContent = ''; }));
-  ['scaleK', 'addK'].forEach((id) => $(id).addEventListener('input', () => { $(id).classList.remove('invalid'); $('opError').textContent = ''; }));
-
-  function readScalar(input) {
-    const q = F.parse(input.value);
-    if (q === null) { fail(input.value.trim() === '' ? 'errK' : 'errK', input); return null; }
-    if (q.isZero()) { fail('errKZero', input); return null; }
-    return q;
-  }
-  function fail(key, input) {
-    $('opError').textContent = t(key);
-    if (input) { input.classList.add('invalid'); input.focus(); }
-  }
-
-  $('opForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-    let op;
-    if (state.opType === 'swap') {
-      const i = Number(sel.swapI.value), j = Number(sel.swapJ.value);
-      if (i === j) return fail('errSameRow');
-      op = { type: 'swap', i, j };
-    } else if (state.opType === 'scale') {
-      const k = readScalar($('scaleK'));
-      if (!k) return;
-      op = { type: 'scale', i: Number(sel.scaleI.value), k };
-    } else {
-      const i = Number(sel.addI.value), j = Number(sel.addJ.value);
-      if (i === j) return fail('errSameRow');
-      const k = readScalar($('addK'));
-      if (!k) return;
-      op = { type: 'add', i, j, k };
-    }
-    const cur = current();
-    const M = Ops.apply(cur.M, op);
-    const ids = cur.ids.slice();
-    if (op.type === 'swap') [ids[op.i], ids[op.j]] = [ids[op.j], ids[op.i]];
-    state.steps = state.steps.slice(0, state.pointer + 1);
-    state.steps.push({ M, ids, op });
-    state.pointer = state.steps.length - 1;
-    $('opError').textContent = '';
-    $('scaleK').value = ''; $('addK').value = '';
-    renderMatrix(true);
-    renderHistory();
-    renderStatus();
-    updatePreview();
-  });
-
-  // ---------------- LaTeX export ----------------
   $('latexBtn').addEventListener('click', () => {
-    const aug = state.steps[0].augmented;
-    const lines = state.steps.slice(0, state.pointer + 1).map((s, idx) =>
-      (idx === 0 ? '' : '\\xrightarrow{' + opLatex(s.op) + '}\\;') + '&' + matrixLatex(s.M, aug));
+    const aug = isAug();
+    const lines = state.steps.map((s, idx) => (idx === 0 ? '' : '\\xrightarrow{' + opLatex(s.op) + '}\\;') + '&' + matrixLatex(s.M, aug));
     const tex = '% \\usepackage{amsmath}\n\\begin{align*}\n' + lines.join(' \\\\\n') + '\n\\end{align*}\n';
     copyText(tex).then(() => toast(t('copied')));
   });
-
   function copyText(text) {
     if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
     const ta = document.createElement('textarea');
@@ -426,7 +686,6 @@
     try { document.execCommand('copy'); } finally { ta.remove(); }
     return Promise.resolve();
   }
-
   let toastTimer;
   function toast(msg) {
     const el = $('toast');
@@ -436,8 +695,6 @@
   }
 
   // ---------------- Init ----------------
-  // A small example so the page is not empty on first visit.
-  [['1', '2', '-1', '3'], ['2', '1', '1', '7'], ['3', '-1', '2', '4']].forEach((row, r) => row.forEach((v, c) => { state.values[r][c] = v; }));
-  buildInputGrid();
   applyLang();
+  renderSize();
 })();

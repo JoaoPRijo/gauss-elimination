@@ -68,6 +68,16 @@
     }
   }
 
+  // Strict parser for the number pad: an integer or a quotient of integers,
+  // e.g. "-3", "4/6", "-1/2". No decimals. Returns a Fraction, or an error code.
+  Fraction.parseInput = function (text) {
+    const m = /^(-?)(\d+)(?:\/(\d+))?$/.exec(text);
+    if (!m) return { error: 'errNumber' };
+    const den = m[3] === undefined ? 1n : BigInt(m[3]);
+    if (den === 0n) return { error: 'errDenZero' };
+    return { value: new Fraction(BigInt(m[2]) * (m[1] ? -1n : 1n), den) };
+  };
+
   function parseDecimal(s) {
     const m = /^([+-]?)(\d*)(?:\.(\d*))?$/.exec(s);
     if (!m) return null;

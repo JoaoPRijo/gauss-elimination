@@ -35,6 +35,13 @@ assert.strictEqual(show(M), '1 2 -1 3 | 2 1 1 7 | 3 -1 2 4', 'input not mutated'
 assert.throws(() => Ops.scale(M, 0, F.ZERO));
 assert.throws(() => Ops.swap(M, 1, 1));
 assert.throws(() => Ops.addMultiple(M, 1, 1, q('2')));
+assert.strictEqual(show(Ops.addMultiple(M, 1, 0, F.ZERO)), show(M), 'adding 0 times a row is allowed');
+assert.strictEqual(show(Ops.apply(M, { type: 'mul', i: 0, k: q('-1') })), '-1 -2 1 -3 | 2 1 1 7 | 3 -1 2 4');
+// Number pad parser
+const P = (s) => { const r = F.parseInput(s); return r.error || r.value.toString(); };
+assert.strictEqual(P('4/6'), '2/3'); assert.strictEqual(P('-12'), '-12'); assert.strictEqual(P('-0'), '0');
+assert.strictEqual(P('3/0'), 'errDenZero'); assert.strictEqual(P('1.5'), 'errNumber'); assert.strictEqual(P('--1'), 'errNumber');
+assert.strictEqual(P('1/-2'), 'errNumber'); assert.strictEqual(P(''), 'errNumber'); assert.strictEqual(P('2/'), 'errNumber'); assert.strictEqual(P('1/2/3'), 'errNumber');
 
 // Full elimination to RREF
 let A = M;

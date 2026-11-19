@@ -1,0 +1,62 @@
+// Interface text in Portuguese (pt) and English (en).
+(function (root) {
+  'use strict';
+  root.I18N = {
+    pt: {
+      title: 'Eliminação de Gauss',
+      rows: 'Linhas',
+      cols: 'Colunas',
+      augmented: 'Matriz ampliada',
+      inputHint: 'Inteiros, frações (ex.: −2/3) ou decimais. Células vazias valem 0.',
+      random: 'Aleatória',
+      clear: 'Limpar',
+      start: 'Começar',
+      opSwap: 'Trocar linhas',
+      opScale: 'Multiplicar linha',
+      opAdd: 'Somar múltiplo',
+      apply: 'Aplicar',
+      undo: 'Desfazer',
+      redo: 'Refazer',
+      steps: 'Passos',
+      initial: 'Matriz inicial',
+      copyLatex: 'Copiar LaTeX',
+      copied: 'LaTeX copiado',
+      newMatrix: 'Nova matriz',
+      ref: 'Forma em escada',
+      rref: 'Forma em escada reduzida',
+      errCells: 'Há entradas inválidas (assinaladas).',
+      errK: 'Escalar inválido.',
+      errKZero: 'O escalar tem de ser diferente de 0.',
+      errSameRow: 'Escolha duas linhas diferentes.',
+      row: 'L'
+    },
+    en: {
+      title: 'Gaussian Elimination',
+      rows: 'Rows',
+      cols: 'Columns',
+      augmented: 'Augmented matrix',
+      inputHint: 'Integers, fractions (e.g. −2/3) or decimals. Empty cells count as 0.',
+      random: 'Random',
+      clear: 'Clear',
+      start: 'Start',
+      opSwap: 'Swap rows',
+      opScale: 'Scale row',
+      opAdd: 'Add multiple',
+      apply: 'Apply',
+      undo: 'Undo',
+      redo: 'Redo',
+      steps: 'Steps',
+      initial: 'Initial matrix',
+      copyLatex: 'Copy LaTeX',
+      copied: 'LaTeX copied',
+      newMatrix: 'New matrix',
+      ref: 'Row echelon form',
+      rref: 'Reduced row echelon form',
+      errCells: 'Some entries are invalid (highlighted).',
+      errK: 'Invalid scalar.',
+      errKZero: 'The scalar must be nonzero.',
+      errSameRow: 'Choose two different rows.',
+      row: 'R'
+    }
+  };
+})(typeof globalThis !== 'undefined' ? globalThis : this);

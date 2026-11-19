@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Eliminação de Gauss</title>
+  <meta name="description" content="Eliminação de Gauss passo a passo, com aritmética exata. / Step-by-step Gaussian elimination with exact arithmetic.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M9 4H5v24h4M23 4h4v24h-4' fill='none' stroke='%232f5d8a' stroke-width='3'/%3E%3Ccircle cx='12' cy='11' r='2.2' fill='%232f5d8a'/%3E%3Ccircle cx='20' cy='21' r='2.2' fill='%232f5d8a'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=STIX+Two+Text:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1 data-i18n="title">Eliminação de Gauss</h1>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="pt" aria-pressed="true">PT</button>
+      <button type="button" data-lang="en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- 1. Enter the matrix -->
+    <section id="setup" class="view">
+      <div class="size-controls">
+        <div class="stepper">
+          <span data-i18n="rows">Linhas</span>
+          <button type="button" class="icon" data-step="rows:-1" aria-label="−">−</button>
+          <output id="rowsOut">3</output>
+          <button type="button" class="icon" data-step="rows:1" aria-label="+">+</button>
+        </div>
+        <div class="stepper">
+          <span data-i18n="cols">Colunas</span>
+          <button type="button" class="icon" data-step="cols:-1" aria-label="−">−</button>
+          <output id="colsOut">4</output>
+          <button type="button" class="icon" data-step="cols:1" aria-label="+">+</button>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="augmented" checked>
+          <span class="track"><span class="thumb"></span></span>
+          <span data-i18n="augmented">Matriz ampliada</span>
+        </label>
+      </div>
+
+      <div class="scroll-x">
+        <div id="inputGrid" class="input-grid"></div>
+      </div>
+      <p class="hint" data-i18n="inputHint">Inteiros, frações (ex.: −2/3) ou decimais.</p>
+      <p class="error" id="setupError" aria-live="polite"></p>
+
+      <div class="actions">
+        <button type="button" class="ghost" id="randomBtn" data-i18n="random">Aleatória</button>
+        <button type="button" class="ghost" id="clearBtn" data-i18n="clear">Limpar</button>
+        <button type="button" class="primary" id="startBtn" data-i18n="start">Começar</button>
+      </div>
+    </section>
+
+    <!-- 2. Work on it -->
+    <section id="work" class="view" hidden>
+      <div class="work-main">
+        <div class="scroll-x matrix-wrap">
+          <div id="matrix" class="matrix" aria-live="polite"></div>
+        </div>
+        <div class="status" id="status" aria-live="polite"></div>
+
+        <div class="op-card">
+          <div class="op-tabs" role="tablist">
+            <button type="button" role="tab" data-op="swap" aria-selected="true">
+              <span class="op-sym" id="symSwap"></span><span class="op-name" data-i18n="opSwap">Trocar linhas</span>
+            </button>
+            <button type="button" role="tab" data-op="scale" aria-selected="false">
+              <span class="op-sym" id="symScale"></span><span class="op-name" data-i18n="opScale">Multiplicar linha</span>
+            </button>
+            <button type="button" role="tab" data-op="add" aria-selected="false">
+              <span class="op-sym" id="symAdd"></span><span class="op-name" data-i18n="opAdd">Somar múltiplo</span>
+            </button>
+          </div>
+
+          <form id="opForm" class="formula" autocomplete="off">
+            <span class="f-swap">
+              <select id="swapI" aria-label="i"></select>
+              <span class="sym">↔</span>
+              <select id="swapJ" aria-label="j"></select>
+            </span>
+            <span class="f-scale" hidden>
+              <select id="scaleI" aria-label="i"></select>
+              <span class="sym">←</span>
+              <input id="scaleK" class="k" inputmode="text" placeholder="k" aria-label="k" spellcheck="false">
+              <span class="echo" id="scaleEcho"></span>
+            </span>
+            <span class="f-add" hidden>
+              <select id="addI" aria-label="i"></select>
+              <span class="sym">←</span>
+              <span class="echo" id="addEcho"></span>
+              <span class="sym">+</span>
+              <input id="addK" class="k" inputmode="text" placeholder="k" aria-label="k" spellcheck="false">
+              <select id="addJ" aria-label="j"></select>
+            </span>
+            <button type="submit" class="primary" data-i18n="apply">Aplicar</button>
+          </form>
+          <p class="error" id="opError" aria-live="polite"></p>
+        </div>
+      </div>
+
+      <aside class="side">
+        <div class="toolbar">
+          <button type="button" class="ghost" id="undoBtn" data-i18n-title="undo" title="Desfazer">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+            <span data-i18n="undo">Desfazer</span>
+          </button>
+          <button type="button" class="ghost" id="redoBtn" data-i18n-title="redo" title="Refazer">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
+            <span data-i18n="redo">Refazer</span>
+          </button>
+        </div>
+        <h2 data-i18n="steps">Passos</h2>
+        <ol id="history" class="history"></ol>
+        <div class="toolbar bottom">
+          <button type="button" class="ghost" id="latexBtn" data-i18n="copyLatex">Copiar LaTeX</button>
+          <button type="button" class="ghost" id="newBtn" data-i18n="newMatrix">Nova matriz</button>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/fraction.js"></script>
+  <script src="js/matrix.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

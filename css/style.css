@@ -308,8 +308,14 @@ body, .choice, .op-btn, .op-panel, .pad, .lang, button.ghost { transition-proper
 /* ---------- Operation sentence ---------- */
 .sentence { flex-direction: column; }
 .s-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
-.s-add { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 10px; }
-.s-branches { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-left: 22px; padding-left: 16px; border-left: 2px solid var(--line); }
+.s-add { display: inline-flex; flex-direction: row; align-items: flex-start; gap: 12px; }
+.s-add > .s-line { margin-top: 2px; } /* lines up with the first branch */
+.s-branches { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 2px 0 2px 16px; border-left: 2px solid var(--line); }
+/* Narrow screens: no room side by side, so the branches go below. */
+@media (max-width: 560px) {
+  .s-add { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .s-branches { margin-left: 22px; }
+}
 .s-branch { justify-content: flex-start; position: relative; }
 .s-branch::before { content: ""; position: absolute; left: -16px; top: 50%; width: 10px; border-top: 2px solid var(--line); }
 .s-branch.enter { animation: viewIn .3s cubic-bezier(.2,.8,.2,1) both; }

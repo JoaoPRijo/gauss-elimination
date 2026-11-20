@@ -1,4 +1,11 @@
-# Eliminação de Gauss / Gaussian Elimination
+# Álgebra Linear / Linear Algebra
+
+Aplicação web para os alunos aprenderem e praticarem álgebra linear. Tópicos:
+
+- **Eliminação de Gauss** (descrita abaixo)
+- **Matrizes em escada**: definições e exemplos de escada de linhas e escada de linhas reduzida, e um modo de prática com cartões gerados ao acaso (a resposta de cada cartão é verificada pelo programa).
+
+## Eliminação de Gauss
 
 Aplicação web para fazer eliminação de Gauss passo a passo, numa matriz qualquer (incluindo matrizes ampliadas), com as três operações elementares sobre linhas:
 

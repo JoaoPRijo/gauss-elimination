@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Eliminação de Gauss</title>
+  <title>Álgebra Linear</title>
   <meta name="description" content="Eliminação de Gauss passo a passo, com aritmética exata. / Step-by-step Gaussian elimination with exact arithmetic.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M9 4H5v24h4M23 4h4v24h-4' fill='none' stroke='%232f5d8a' stroke-width='3'/%3E%3Ccircle cx='12' cy='11' r='2.2' fill='%232f5d8a'/%3E%3Ccircle cx='20' cy='21' r='2.2' fill='%232f5d8a'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -14,7 +14,7 @@
 </head>
 <body>
   <header class="topbar">
-    <button type="button" class="title-btn" id="homeBtn"><h1 data-i18n="title">Eliminação de Gauss</h1></button>
+    <button type="button" class="title-btn" id="homeBtn"><h1 data-i18n="appTitle">Álgebra Linear</h1></button>
     <div class="top-right">
     <button type="button" class="theme-btn" id="themeBtn" data-i18n-title="theme" title="">
       <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
@@ -28,8 +28,63 @@
   </header>
 
   <main>
+    <!-- 0. Topics -->
+    <section id="menu" class="view" hidden>
+      <div class="topic-list">
+        <a class="topic" href="#gauss">
+          <svg viewBox="0 0 64 64" aria-hidden="true">
+            <path d="M12 12H7v40h5M52 12h5v40h-5"/>
+            <rect x="16" y="18" width="32" height="7" rx="2.5" class="bar"/>
+            <rect x="16" y="29" width="32" height="7" rx="2.5" class="bar"/>
+            <rect x="16" y="40" width="32" height="7" rx="2.5" class="bar"/>
+          </svg>
+          <span class="topic-text"><strong data-i18n="topicGauss">Eliminação de Gauss</strong><small data-i18n="topicGaussSub">Operações elementares sobre linhas</small></span>
+          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+        </a>
+        <a class="topic" href="#escada">
+          <svg viewBox="0 0 64 64" aria-hidden="true">
+            <path d="M12 12H7v40h5M52 12h5v40h-5"/>
+            <path d="M16 18h8v9h8v9h8v9h8" class="stair"/>
+          </svg>
+          <span class="topic-text"><strong data-i18n="topicEchelon">Matrizes em escada</strong><small data-i18n="topicEchelonSub">Escada de linhas e escada de linhas reduzida</small></span>
+          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+        </a>
+      </div>
+    </section>
+
+    <!-- Echelon forms: definitions and examples -->
+    <section id="echelon" class="view" hidden>
+      <button type="button" class="back" data-go="" aria-label="←">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <h2 data-i18n="topicEchelon">Matrizes em escada</h2>
+      <div id="echelonContent" class="learn"></div>
+      <div class="actions"><a class="primary btn-link" href="#praticar" data-i18n="practice">Praticar</a></div>
+    </section>
+
+    <!-- Practice cards -->
+    <section id="practice" class="view" hidden>
+      <button type="button" class="back" data-go="escada" aria-label="←">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <h2 data-i18n="practiceTitle">Em escada?</h2>
+      <div class="score" id="score"></div>
+      <div class="card-area"><div class="card" id="card"></div></div>
+      <div class="answers" id="answers">
+        <button type="button" class="answer" data-answer="ref" data-i18n="ansRef">Escada de linhas</button>
+        <button type="button" class="answer" data-answer="rref" data-i18n="ansRref">Escada de linhas reduzida</button>
+        <button type="button" class="answer" data-answer="none" data-i18n="ansNone">Nenhuma</button>
+      </div>
+      <p class="feedback" id="feedback" aria-live="polite"></p>
+      <div class="actions"><button type="button" class="primary" id="nextCard" data-i18n="next" hidden>Seguinte</button></div>
+    </section>
+
     <!-- 1. Manual or random -->
-    <section id="home" class="view">
+    <section id="home" class="view" hidden>
+      <button type="button" class="back" data-go="" aria-label="←">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <h2 data-i18n="topicGauss">Eliminação de Gauss</h2>
       <div class="choice-grid">
         <button type="button" class="choice" id="chooseManual">
           <svg viewBox="0 0 64 64" aria-hidden="true">
@@ -103,6 +158,9 @@
     <!-- 4. Work -->
     <section id="work" class="view" hidden>
       <div class="work-top">
+        <button type="button" class="ghost icon-only" id="newMatrixBtn" data-i18n-title="newMatrix" title="">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+        </button>
         <button type="button" class="ghost" id="stepsBtn">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>
           <span data-i18n="viewSteps">Ver passos aplicados</span>
@@ -193,6 +251,7 @@
 
   <script src="js/fraction.js"></script>
   <script src="js/matrix.js"></script>
+  <script src="js/echelon.js"></script>
   <script src="js/i18n.js"></script>
   <script src="js/app.js"></script>
 </body>

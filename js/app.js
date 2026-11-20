@@ -73,7 +73,7 @@
   }
 
   // ---------------- Views ----------------
-  const VIEWS = ['home', 'size', 'entry', 'work'];
+  const VIEWS = ['menu', 'echelon', 'practice', 'home', 'size', 'entry', 'work'];
   function show(id) {
     VIEWS.forEach((v) => { $(v).hidden = v !== id; });
     const el = $(id);
@@ -81,12 +81,29 @@
     window.scrollTo({ top: 0 });
   }
   document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', () => { closePad(); show(b.dataset.back); }));
-  $('homeBtn').addEventListener('click', () => { if (state.busy) return; closePad(); cancelOp(); show('home'); });
+  document.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => { closePad(); location.hash = b.dataset.go; }));
+  $('homeBtn').addEventListener('click', () => { if (state.busy) return; closePad(); location.hash = ''; });
+  $('newMatrixBtn').addEventListener('click', () => { if (state.busy) return; cancelOp(); state.steps = []; show('home'); });
+
+  // Top-level pages have their own address, so links and the browser's back button work.
+  function route() {
+    if (state.busy) return;
+    closePad(true);
+    if (state.op) cancelOp();
+    const h = location.hash.replace('#', '');
+    if (h === 'gauss') show(state.steps.length ? 'work' : 'home');
+    else if (h === 'escada' || h === 'escada-reduzida') {
+      show('echelon');
+      if (h === 'escada-reduzida') requestAnimationFrame(() => $('secRref').scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    } else if (h === 'praticar') { if (!practice.card) newCard(false); show('practice'); }
+    else show('menu');
+  }
+  window.addEventListener('hashchange', route);
 
   // ---------------- Language ----------------
   function applyLang() {
     document.documentElement.lang = state.lang;
-    document.title = t('title');
+    document.title = t('appTitle');
     document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
     document.querySelectorAll('[data-i18n-title]').forEach((el) => {
       el.title = t(el.dataset.i18nTitle); el.setAttribute('aria-label', t(el.dataset.i18nTitle));
@@ -95,6 +112,8 @@
     $('opError').textContent = '';
     if (state.steps.length) { renderMatrix(); renderStatus(false); renderHistory(); }
     if (state.op) renderSentence();
+    renderEchelonPage();
+    renderPractice();
   }
   document.querySelectorAll('.lang button').forEach((b) => b.addEventListener('click', () => {
     state.lang = b.dataset.lang;
@@ -359,11 +378,20 @@
   function renderStatus(celebrate) {
     const M = current().M;
     const el = $('status');
+    // The message can be tapped to show a link to the page that explains it.
+    const msg = (cls, icon, text, href, question) => {
+      el.innerHTML = '<button type="button" class="msg ' + cls + '"><svg viewBox="0 0 24 24"><path d="' + icon + '"/></svg>' + text + '</button>' +
+        '<div><a class="what" href="' + href + '" hidden>' + question + ' →</a></div>';
+      el.querySelector('.msg').addEventListener('click', () => {
+        const a = el.querySelector('.what');
+        a.hidden = !a.hidden;
+      });
+    };
     if (Ops.isReducedRowEchelon(M)) {
-      el.innerHTML = '<span class="msg rref"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' + t('rref') + '</span>';
+      msg('rref', 'M5 12.5l4.5 4.5L19 7.5', t('rref'), '#escada-reduzida', t('whatRref'));
       if (celebrate) celebrateMatrix();
     } else if (Ops.isRowEchelon(M)) {
-      el.innerHTML = '<span class="msg ref"><svg viewBox="0 0 24 24"><path d="M4 19h5v-5h5V9h5V4"/></svg>' + t('ref') + '</span>';
+      msg('ref', 'M4 19h5v-5h5V9h5V4', t('ref'), '#escada', t('whatRef'));
     } else el.innerHTML = '';
   }
 
@@ -788,6 +816,111 @@
     toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
   }
 
+  // ---------------- Echelon forms page ----------------
+  const fill = (text, vals) => text.replace(/\{(\w+)\}/g, (_, k) => vals[k]);
+
+  // A matrix to look at (not to work on). Pivots can be circled.
+  function staticMatrix(M, withPivots) {
+    const piv = new Set(withPivots ? window.Echelon.pivots(M).map(([r, c]) => r + ',' + c) : []);
+    let html = '<div class="smatrix" style="grid-template-columns: repeat(' + M[0].length + ', auto)">';
+    M.forEach((row, r) => row.forEach((x, c) => {
+      html += '<span class="sc' + (piv.has(r + ',' + c) ? ' pivot' : '') + '"><span>' + fracHTML(x) + '</span></span>';
+    }));
+    return html + '</div>';
+  }
+  const toM = (rows) => rows.map((r) => r.map((x) => F.parse(x)));
+
+  function renderEchelonPage() {
+    const ex = window.Echelon.EXAMPLES;
+    const section = (id, title, intro, conds, note, examples, non, why) =>
+      '<section class="learn-sec" id="' + id + '">' +
+      '<h3>' + title + '</h3>' +
+      '<p>' + intro + '</p><ol>' + conds.map((c) => '<li>' + c + '</li>').join('') + '</ol>' +
+      (note ? '<p class="note">' + note + '</p>' : '') +
+      '<h4>' + t('examples') + '</h4>' +
+      '<div class="ex-row">' + examples.map((m) => '<div class="ex">' + staticMatrix(toM(m), true) + '</div>').join('') + '</div>' +
+      '<h4>' + t('notExample') + '</h4>' +
+      '<div class="ex-row"><div class="ex non">' + staticMatrix(toM(non), true) + '<p>' + why + '</p></div></div>' +
+      '</section>';
+    $('echelonContent').innerHTML =
+      '<p class="pivot-def"><span class="pivot-dot"></span><span>' + t('pivotDef') + '</span></p>' +
+      section('secRef', t('refTitle'), t('refIntro'), t('refConds'), t('refNote'), ex.ref, ex.nonRef, t('nonRefWhy')) +
+      section('secRref', t('rrefTitle'), t('rrefIntro'), t('rrefConds'), '', ex.rref, ex.nonRref, t('nonRrefWhy'));
+  }
+
+  // ---------------- Practice (flash cards) ----------------
+  const practice = { card: null, answer: null, correct: 0, total: 0 };
+
+  function reasonText(card, answer) {
+    if (card.kind === 'rref') return answer === 'ref' ? t('rRrefAlsoRef') : t('rRref');
+    const r = card.reason;
+    const n = (x) => x + 1;
+    if (r.type === 'zeroAbove') return fill(t('rZeroAbove'), { z: n(r.zeroRow), r: n(r.row) });
+    if (r.type === 'pivotNotRight') return fill(t('rPivotNotRight'), { r: n(r.row), p: n(r.prev) });
+    if (r.type === 'pivotNotOne') return fill(t('rPivotNotOne'), { r: n(r.row) });
+    return fill(t('rNonzeroPivotCol'), { r: n(r.row), o: n(r.other) });
+  }
+
+  function renderPractice() {
+    const p = practice;
+    $('score').textContent = p.total ? fill(t('score'), { c: p.correct, t: p.total }) : '';
+    if (!p.card) return;
+    $('card').innerHTML = staticMatrix(p.card.M, p.answer !== null);
+    document.querySelectorAll('.answer').forEach((b) => {
+      b.classList.toggle('right', p.answer !== null && b.dataset.answer === p.card.kind);
+      b.classList.toggle('wrong', p.answer !== null && b.dataset.answer === p.answer && p.answer !== p.card.kind);
+      b.disabled = p.answer !== null;
+    });
+    const fb = $('feedback');
+    if (p.answer === null) { fb.innerHTML = ''; fb.className = 'feedback'; }
+    else {
+      const ok = p.answer === p.card.kind;
+      fb.className = 'feedback ' + (ok ? 'ok' : 'no');
+      fb.innerHTML = '<b>' + (ok ? t('correct') : t('wrong')) + '</b> ' + reasonText(p.card, p.answer);
+    }
+    $('nextCard').hidden = p.answer === null;
+  }
+
+  async function newCard(animate) {
+    const card = $('card');
+    if (animate && !reduceMotion) {
+      await card.animate([{ transform: 'none', opacity: 1 }, { transform: 'translateX(-60px) rotate(-3deg)', opacity: 0 }],
+        { duration: 220, easing: 'ease-in', fill: 'forwards' }).finished;
+    }
+    practice.card = window.Echelon.practiceCard();
+    practice.answer = null;
+    renderPractice();
+    card.getAnimations().forEach((a) => a.cancel());
+    if (!reduceMotion) {
+      card.animate([{ transform: 'translateX(60px) rotate(3deg)', opacity: 0 }, { transform: 'none', opacity: 1 }],
+        { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    }
+  }
+  function answerCard(a) {
+    const p = practice;
+    if (!p.card || p.answer !== null) return;
+    p.answer = a;
+    p.total++;
+    if (a === p.card.kind) p.correct++;
+    renderPractice();
+    const card = $('card');
+    if (!reduceMotion) {
+      card.animate(a === p.card.kind
+        ? [{ transform: 'scale(1)' }, { transform: 'scale(1.04)' }, { transform: 'scale(1)' }]
+        : [{ transform: 'none' }, { transform: 'translateX(-8px)' }, { transform: 'translateX(8px)' }, { transform: 'none' }],
+        { duration: 350, easing: 'ease-out' });
+    }
+    $('nextCard').focus({ preventScroll: true });
+  }
+  document.querySelectorAll('.answer').forEach((b) => b.addEventListener('click', () => answerCard(b.dataset.answer)));
+  $('nextCard').addEventListener('click', () => newCard(true));
+  document.addEventListener('keydown', (e) => {
+    if ($('practice').hidden || e.metaKey || e.ctrlKey) return;
+    const map = { 1: 'ref', 2: 'rref', 3: 'none' };
+    if (map[e.key] && practice.answer === null) answerCard(map[e.key]);
+    else if ((e.key === 'Enter' || e.key === ' ') && practice.answer !== null && document.activeElement !== $('nextCard')) { e.preventDefault(); newCard(true); }
+  });
+
   // ---------------- Light / dark mode ----------------
   // By default the page follows the device setting; the button overrides it.
   const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -801,4 +934,5 @@
   // ---------------- Init ----------------
   applyLang();
   renderSize();
+  route();
 })();

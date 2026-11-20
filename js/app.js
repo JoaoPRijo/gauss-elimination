@@ -308,7 +308,7 @@
     const before = new Map();
     if (flip) box.querySelectorAll('.mrow').forEach((el) => before.set(el.dataset.id, { top: el.getBoundingClientRect().top, text: el.dataset.content }));
 
-    const tpl = ['auto', '9px'];
+    const tpl = ['0px', '9px'];
     for (let c = 0; c < n; c++) { if (aug && c === n - 1) tpl.push('16px'); tpl.push('auto'); }
     tpl.push('9px');
     box.style.gridTemplateColumns = tpl.join(' ');
@@ -320,7 +320,7 @@
       el.dataset.id = ids[r];
       el.dataset.index = r;
       el.dataset.content = row.map(String).join(',');
-      let html = '<span class="rlabel">' + rowHTML(r) + '</span><span></span>';
+      let html = '<span></span><span></span>'; // no row labels: rows are chosen by tapping them
       row.forEach((x, c) => {
         if (aug && c === n - 1) html += '<span></span>';
         html += '<span class="cell">' + fracHTML(x) + '</span>';

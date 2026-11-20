@@ -62,6 +62,10 @@
     if (op.k.isZero()) return R(op.i) + ' \\leftarrow ' + R(op.i) + ' + 0' + R(op.j);
     return R(op.i) + ' \\leftarrow ' + R(op.i) + (op.k.sign() < 0 ? ' - ' : ' + ') + c(op.k.abs()) + R(op.j);
   }
+  // Several simultaneous operations are stacked over one arrow.
+  function stepLatex(ops) {
+    return ops.length === 1 ? opLatex(ops[0]) : '\\substack{' + ops.map(opLatex).join(' \\\\ ') + '}';
+  }
   function matrixLatex(M, aug) {
     const n = M[0].length;
     const spec = aug ? 'c'.repeat(n - 1) + '|c' : 'c'.repeat(n);
@@ -282,7 +286,7 @@
 
   // ---------------- Work view ----------------
   function startWith(M) {
-    state.steps = [{ M, ids: M.map((_, i) => i), op: null, augmented: state.augmented && M[0].length > 1 }];
+    state.steps = [{ M, ids: M.map((_, i) => i), ops: null, augmented: state.augmented && M[0].length > 1 }];
     state.op = null;
     $('opPanel').hidden = true;
     show('work');
@@ -292,7 +296,7 @@
     renderHistory();
   }
 
-  function renderMatrix(flip) {
+  function renderMatrix(flip, flipMs) {
     const box = $('matrix');
     const { M, ids } = current();
     const aug = isAug();
@@ -336,7 +340,7 @@
       const dy = old.top - el.getBoundingClientRect().top;
       if (Math.abs(dy) > 0.5) {
         el.style.zIndex = dy > 0 ? 3 : 2;
-        el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: D(450), easing: 'cubic-bezier(.2,.8,.2,1)' })
+        el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: D(flipMs || 450), easing: 'cubic-bezier(.25,.75,.25,1)' })
           .finished.then(() => { el.style.zIndex = ''; });
       } else if (old.text !== el.dataset.content) {
         flashRow(el);
@@ -361,8 +365,10 @@
   }
 
   // ---------------- Building an operation ----------------
+  // "add" has one source row followed by one or more (number, target row) pairs:
+  // slots = [row(source), num, row(target), num, row(target), ...]
   const SLOT_KINDS = { add: ['row', 'num', 'row'], mul: ['row', 'num'], swap: ['row', 'row'] };
-  const SENTENCE = { add: 'sentAdd', mul: 'sentMul', swap: 'sentSwap' };
+  const SENTENCE = { mul: 'sentMul', swap: 'sentSwap' };
 
   document.querySelectorAll('.op-btn').forEach((b) => b.addEventListener('click', () => {
     if (state.busy) return;
@@ -371,7 +377,7 @@
     $('opPanel').hidden = false;
     $('opError').textContent = '';
     renderOpButtons();
-    setActive(0);
+    setActive(0, false);
   }));
   function renderOpButtons() {
     document.querySelectorAll('.op-btn').forEach((b) => {
@@ -388,40 +394,90 @@
     paintChosen();
   }
 
-  function renderSentence() {
+  function slotButton(idx) {
+    const op = state.op;
+    const slot = op.slots[idx];
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'slot ' + slot.kind + '-slot' + (slot.value !== null ? ' filled' : '') + (op.active === idx ? ' active' : '');
+    b.innerHTML = '<span>' + (slot.value === null ? '&nbsp;' : slot.kind === 'row' ? rowHTML(slot.value) : fracHTML(slot.value)) + '</span>';
+    b.addEventListener('click', () => { if (!state.busy) setActive(idx, true); });
+    return b;
+  }
+  const word = (text) => { const s = document.createElement('span'); s.textContent = text; return s; };
+  const line = (cls) => { const d = document.createElement('div'); d.className = cls; return d; };
+
+  function renderSentence(newPair) {
     const op = state.op;
     const box = $('sentence');
     box.innerHTML = '';
-    t(SENTENCE[op.type]).forEach((part) => {
-      if (typeof part === 'string') {
-        const s = document.createElement('span'); s.textContent = part; box.appendChild(s); return;
+    if (op.type === 'add') {
+      const wrap = line('s-add');
+      const head = line('s-line');
+      head.append(word(t('addHead')), slotButton(0));
+      wrap.appendChild(head);
+      const branches = line('s-branches');
+      const pairs = (op.slots.length - 1) / 2;
+      for (let p = 0; p < pairs; p++) {
+        const l = line('s-line s-branch');
+        l.append(word(t('addTimes')), slotButton(1 + 2 * p), word(t('addTo')), slotButton(2 + 2 * p));
+        if (pairs > 1) {
+          const rm = document.createElement('button');
+          rm.type = 'button'; rm.className = 'mini'; rm.title = t('removeRow'); rm.setAttribute('aria-label', t('removeRow'));
+          rm.innerHTML = '<svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg>';
+          rm.addEventListener('click', () => removePair(p));
+          l.appendChild(rm);
+        }
+        if (newPair && p === pairs - 1) l.classList.add('enter');
+        branches.appendChild(l);
       }
-      const slot = op.slots[part];
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'slot ' + slot.kind + '-slot' + (slot.value !== null ? ' filled' : '') + (op.active === part ? ' active' : '');
-      b.innerHTML = '<span>' + (slot.value === null ? '&nbsp;' : slot.kind === 'row' ? rowHTML(slot.value) : fracHTML(slot.value)) + '</span>';
-      b.addEventListener('click', () => { if (!state.busy) setActive(part); });
-      box.appendChild(b);
-    });
-    const done = op.slots.every((s) => s.value !== null);
-    $('opApply').disabled = !done;
-    $('notation').innerHTML = done ? opHTML(buildOp()) : '';
+      // "+" adds another target row that uses the same source row.
+      const more = document.createElement('button');
+      more.type = 'button'; more.className = 'more'; more.title = t('addRow'); more.setAttribute('aria-label', t('addRow'));
+      more.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg>';
+      more.disabled = !op.slots.every((s) => s.value !== null) || pairs >= current().M.length - 1;
+      more.addEventListener('click', addPair);
+      branches.appendChild(more);
+      wrap.appendChild(branches);
+      box.appendChild(wrap);
+    } else {
+      const l = line('s-line');
+      t(SENTENCE[op.type]).forEach((part) => l.appendChild(typeof part === 'string' ? word(part) : slotButton(part)));
+      box.appendChild(l);
+    }
+    $('opApply').disabled = !op.slots.every((s) => s.value !== null);
     $('matrix').classList.toggle('picking', op.active >= 0 && op.slots[op.active].kind === 'row');
     paintChosen();
   }
 
-  function setActive(idx) {
+  function addPair() {
+    const op = state.op;
+    op.slots.push({ kind: 'num', value: null }, { kind: 'row', value: null });
+    op.active = op.slots.length - 2;
+    renderSentence(true);
+  }
+  function removePair(p) {
+    const op = state.op;
+    op.slots.splice(1 + 2 * p, 2);
+    closePad(true);
+    const firstEmpty = op.slots.findIndex((s) => s.value === null);
+    op.active = firstEmpty;
+    $('opError').textContent = '';
+    renderSentence();
+  }
+
+  // Activate a slot. The number pad only opens when the person taps a number box.
+  function setActive(idx, openNow) {
     const op = state.op;
     op.active = idx;
     renderSentence();
-    if (idx >= 0 && op.slots[idx].kind === 'num') {
+    if (openNow && idx >= 0 && op.slots[idx].kind === 'num') {
       const slot = op.slots[idx];
       openPad({
         text: slot.value === null ? '' : slot.value.toString(),
         validate: (v) => (op.type === 'mul' && v.isZero() ? 'errZero' : null),
         onOk: (v) => { slot.value = v; advance(); },
-        onClose: () => { op.active = -1; renderSentence(); }
+        onClose: () => renderSentence()
       });
     } else closePad(true);
   }
@@ -430,18 +486,18 @@
     const n = op.slots.length;
     for (let k = 1; k <= n; k++) {
       const idx = (Math.max(op.active, 0) + k) % n;
-      if (op.slots[idx].value === null) return setActive(idx);
+      if (op.slots[idx].value === null) return setActive(idx, false);
     }
-    setActive(-1);
+    setActive(-1, false);
     $('opApply').focus({ preventScroll: true });
   }
 
   function onRowClick(r) {
     const op = state.op;
     if (!op || state.busy || op.active < 0 || op.slots[op.active].kind !== 'row') return;
-    // The two rows of "add" and "swap" must be different.
-    const other = op.slots.find((s, idx) => idx !== op.active && s.kind === 'row');
-    if (other && other.value === r) {
+    // All rows in one operation must be different (source and every target).
+    const clash = op.slots.some((s, idx) => idx !== op.active && s.kind === 'row' && s.value === r);
+    if (clash) {
       $('opError').textContent = t('errSameRow');
       const el = rowEl(r);
       el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake');
@@ -460,11 +516,16 @@
     rowSlots.forEach((s, k) => { if (s.value !== null && rowEl(s.value)) rowEl(s.value).classList.add(k === 0 ? 'chosen' : 'chosen2'); });
   }
 
-  function buildOp() {
+  // The elementary operations described by the panel.
+  function buildOps() {
     const v = state.op.slots.map((s) => s.value);
-    if (state.op.type === 'add') return { type: 'add', i: v[2], j: v[0], k: v[1] };  // L_target ← L_target + k L_source
-    if (state.op.type === 'mul') return { type: 'mul', i: v[0], k: v[1] };
-    return { type: 'swap', i: v[0], j: v[1] };
+    if (state.op.type === 'add') {
+      const ops = [];
+      for (let p = 1; p < v.length; p += 2) ops.push({ type: 'add', i: v[p + 1], j: v[0], k: v[p] }); // L_target ← L_target + k L_source
+      return ops;
+    }
+    if (state.op.type === 'mul') return [{ type: 'mul', i: v[0], k: v[1] }];
+    return [{ type: 'swap', i: v[0], j: v[1] }];
   }
 
   $('opCancel').addEventListener('click', cancelOp);
@@ -472,26 +533,28 @@
 
   async function applyOp() {
     if (state.busy || !state.op || !state.op.slots.every((s) => s.value !== null)) return;
-    const op = buildOp();
+    const ops = buildOps();
     const prev = current();
+    // Several "add" operations share the source row, whose values never change,
+    // and their target rows are all different; so applying them one after the
+    // other is the same as applying them simultaneously.
     let M;
-    try { M = Ops.apply(prev.M, op); } catch (e) { $('opError').textContent = t(e.message === 'same-row' ? 'errSameRow' : 'errZero'); return; }
+    try { M = ops.reduce((A, op) => Ops.apply(A, op), prev.M); } catch (e) { $('opError').textContent = t(e.message === 'same-row' ? 'errSameRow' : 'errZero'); return; }
     const ids = prev.ids.slice();
-    if (op.type === 'swap') [ids[op.i], ids[op.j]] = [ids[op.j], ids[op.i]];
+    ops.forEach((op) => { if (op.type === 'swap') [ids[op.i], ids[op.j]] = [ids[op.j], ids[op.i]]; });
     const wasRREF = Ops.isReducedRowEchelon(prev.M);
+    const type = ops[0].type;
 
     cancelOp();
     state.busy = true;
-    document.body.classList.add('busy');
     try {
-      if (op.type === 'add') await animateAdd(op, M);
-      else if (op.type === 'mul') await animateMul(op, M);
-      state.steps.push({ M, ids, op });
-      renderMatrix(op.type === 'swap');
-      if (op.type === 'swap') await wait(D(470));
+      if (type === 'add') await animateAdd(ops, M);
+      else if (type === 'mul') await animateMul(ops[0], M);
+      state.steps.push({ M, ids, ops });
+      renderMatrix(type === 'swap', SWAP_MS);
+      if (type === 'swap') await wait(D(SWAP_MS + 30));
     } finally {
       state.busy = false;
-      document.body.classList.remove('busy');
     }
     renderOpButtons();
     renderHistory();
@@ -511,6 +574,7 @@
   $('undoBtn').addEventListener('click', undo);
 
   // ---------------- Animations ----------------
+  const SWAP_MS = 760;
   const stageBox = () => $('stage').getBoundingClientRect();
 
   // A badge with the constant k slides across `cells`, changing each value as it passes.
@@ -554,20 +618,14 @@
     await wait(D(250));
   }
 
-  async function animateAdd(op, newM) {
-    const stage = $('stage');
+  // A floating copy of a matrix row, placed exactly over it.
+  function makeGhost(src) {
     const sb = stageBox();
-    const src = rowEl(op.j), dst = rowEl(op.i);
-    const sr = src.getBoundingClientRect(), dr = dst.getBoundingClientRect();
-    const mr = $('matrix').getBoundingClientRect();
-    src.classList.add('chosen2'); dst.classList.add('chosen');
-
-    // 1. A copy of the source row lifts off...
+    const sr = src.getBoundingClientRect();
     const ghost = document.createElement('div');
     ghost.className = 'ghost-row';
     Object.assign(ghost.style, { left: sr.left - sb.left + 'px', top: sr.top - sb.top + 'px', width: sr.width + 'px', height: sr.height + 'px' });
-    const srcCells = [...src.querySelectorAll('.cell')];
-    const gCells = srcCells.map((c) => {
+    const cells = [...src.querySelectorAll('.cell')].map((c) => {
       const r = c.getBoundingClientRect();
       const g = document.createElement('span');
       g.className = 'cell';
@@ -576,42 +634,75 @@
       ghost.appendChild(g);
       return g;
     });
-    stage.appendChild(ghost);
+    $('stage').appendChild(ghost);
+    return { ghost, cells };
+  }
 
-    // ...and jumps to the side of the matrix (or below it, on narrow screens).
+  // Points along a quadratic Bézier curve from p0 to p2 with control point c.
+  function curveFrames(p0, c, p2, steps) {
+    const frames = [];
+    for (let s = 0; s <= steps; s++) {
+      const u = s / steps;
+      const e = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2; // ease in-out
+      const x = (1 - e) * (1 - e) * p0.x + 2 * (1 - e) * e * c.x + e * e * p2.x;
+      const y = (1 - e) * (1 - e) * p0.y + 2 * (1 - e) * e * c.y + e * e * p2.y;
+      const sc = 1 + 0.04 * Math.sin(Math.PI * u);
+      frames.push({ transform: `translate(${x}px, ${y}px) scale(${sc})` });
+    }
+    return frames;
+  }
+
+  // ops: one or more "add" operations sharing the same source row.
+  async function animateAdd(ops, newM) {
+    const srcIdx = ops[0].j;
+    const src = rowEl(srcIdx);
+    const sr = src.getBoundingClientRect();
+    const mr = $('matrix').getBoundingClientRect();
+    src.classList.add('chosen');
+    ops.forEach((op) => rowEl(op.i).classList.add('chosen2'));
+
+    // 1. A copy of the source row lifts off and jumps to the side of the matrix
+    //    (or below it, on narrow screens).
+    const base = makeGhost(src);
     const sideX = mr.right - sr.left + 40;
     const fitsSide = sr.right + sideX + 8 < document.documentElement.clientWidth;
     const park = fitsSide ? { x: sideX, y: 0 } : { x: 0, y: mr.bottom - sr.top + 26 };
-    await ghost.animate([
-      { transform: 'none', boxShadow: 'none' },
+    await base.ghost.animate([
+      { transform: 'none' },
       { transform: `translate(${park.x * 0.5}px, ${park.y * 0.5 - 28}px) scale(1.04)`, offset: 0.5 },
       { transform: `translate(${park.x}px, ${park.y}px)` }
     ], { duration: D(560), easing: 'cubic-bezier(.3,.7,.3,1)', fill: 'forwards' }).finished;
-    // Keep the parked position in normal layout so the badge can measure it.
-    ghost.getAnimations().forEach((a) => a.cancel());
-    ghost.style.transform = `translate(${park.x}px, ${park.y}px)`;
+    base.ghost.getAnimations().forEach((a) => a.cancel());
+    base.ghost.style.transform = `translate(${park.x}px, ${park.y}px)`;
 
-    // 2. It is multiplied by k.
-    await wait(D(120));
-    await sweep(ghost, gCells, op.k, newM[op.i].map((_, c) => fracHTML(op.k.mul(current().M[op.j][c]))), 500 + 80 * gCells.length);
+    for (const op of ops) {
+      // 2. A copy of it is multiplied by k (the parked copy stays for the next target)...
+      const g = ops.length > 1 ? makeGhost(src) : base;
+      if (g !== base) g.ghost.style.transform = base.ghost.style.transform;
+      await wait(D(100));
+      await sweep(g.ghost, g.cells, op.k, current().M[srcIdx].map((x) => fracHTML(op.k.mul(x))), 450 + 75 * g.cells.length);
+      await wait(D(120));
+
+      // 3. ...and falls onto the target row along the outside of the matrix:
+      //    first down (or up) beside the matrix, then sideways into place.
+      const dst = rowEl(op.i);
+      const toY = dst.getBoundingClientRect().top - sr.top;
+      const control = { x: park.x, y: toY };
+      await g.ghost.animate(curveFrames(park, control, { x: 0, y: toY }, 24),
+        { duration: D(720), easing: 'linear', fill: 'forwards' }).finished;
+      [...dst.querySelectorAll('.cell')].forEach((c, idx) => {
+        c.innerHTML = fracHTML(newM[op.i][idx]);
+        c.animate([{ transform: 'translateX(-6px)', opacity: 0.2 }, { transform: 'none', opacity: 1 }], { duration: D(380), easing: 'cubic-bezier(.2,.8,.2,1)' });
+      });
+      flashRow(dst);
+      await g.ghost.animate([{ opacity: 1 }, { opacity: 0, transform: `translate(0px, ${toY}px) scale(.96)` }], { duration: D(240), fill: 'forwards' }).finished;
+      g.ghost.remove();
+    }
+    if (base.ghost.isConnected) {
+      await base.ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: D(240), fill: 'forwards' }).finished;
+      base.ghost.remove();
+    }
     await wait(D(150));
-
-    // 3. It falls onto the target row, leaving the result.
-    const toY = dr.top - sr.top;
-    await ghost.animate([
-      { transform: `translate(${park.x}px, ${park.y}px)` },
-      { transform: `translate(${park.x * 0.45}px, ${Math.min(park.y, toY) - 34}px) scale(1.04)`, offset: 0.45 },
-      { transform: `translate(0px, ${toY}px) scale(1)` }
-    ], { duration: D(620), easing: 'cubic-bezier(.45,.05,.4,1)', fill: 'forwards' }).finished;
-    const dstCells = [...dst.querySelectorAll('.cell')];
-    dstCells.forEach((c, idx) => {
-      c.innerHTML = fracHTML(newM[op.i][idx]);
-      c.animate([{ transform: 'translateY(-6px)', opacity: 0.2 }, { transform: 'none', opacity: 1 }], { duration: D(380), easing: 'cubic-bezier(.2,.8,.2,1)' });
-    });
-    flashRow(dst);
-    await ghost.animate([{ opacity: 1 }, { opacity: 0, transform: `translate(0px, ${toY}px) scale(.96)` }], { duration: D(260), fill: 'forwards' }).finished;
-    ghost.remove();
-    await wait(D(200));
   }
 
   // The matrix "is happy": rows hop one after the other, the matrix bounces, and sparks fly.
@@ -662,7 +753,7 @@
     ol.innerHTML = '';
     state.steps.slice(1).forEach((s, idx) => {
       const li = document.createElement('li');
-      li.innerHTML = '<span class="n">' + (idx + 1) + '</span><span>' + opHTML(s.op) + '</span>';
+      li.innerHTML = '<span class="n">' + (idx + 1) + '</span><span class="ops">' + s.ops.map((op) => '<span>' + opHTML(op) + '</span>').join('') + '</span>';
       ol.appendChild(li);
     });
     $('historyEmpty').hidden = n > 0;
@@ -674,7 +765,7 @@
 
   $('latexBtn').addEventListener('click', () => {
     const aug = isAug();
-    const lines = state.steps.map((s, idx) => (idx === 0 ? '' : '\\xrightarrow{' + opLatex(s.op) + '}\\;') + '&' + matrixLatex(s.M, aug));
+    const lines = state.steps.map((s, idx) => (idx === 0 ? '' : '\\xrightarrow{' + stepLatex(s.ops) + '}\\;') + '&' + matrixLatex(s.M, aug));
     const tex = '% \\usepackage{amsmath}\n\\begin{align*}\n' + lines.join(' \\\\\n') + '\n\\end{align*}\n';
     copyText(tex).then(() => toast(t('copied')));
   });
@@ -693,6 +784,16 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
   }
+
+  // ---------------- Light / dark mode ----------------
+  // By default the page follows the device setting; the button overrides it.
+  const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  $('themeBtn').addEventListener('click', () => {
+    const now = document.documentElement.dataset.theme || (darkQuery.matches ? 'dark' : 'light');
+    const next = now === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('gauss-theme', next); } catch (e) { /* ignore */ }
+  });
 
   // ---------------- Init ----------------
   applyLang();

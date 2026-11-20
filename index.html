@@ -10,13 +10,20 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=STIX+Two+Text:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
+  <script>try { var th = localStorage.getItem('gauss-theme'); if (th === 'light' || th === 'dark') document.documentElement.dataset.theme = th; } catch (e) {}</script>
 </head>
 <body>
   <header class="topbar">
     <button type="button" class="title-btn" id="homeBtn"><h1 data-i18n="title">Eliminação de Gauss</h1></button>
+    <div class="top-right">
+    <button type="button" class="theme-btn" id="themeBtn" data-i18n-title="theme" title="">
+      <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
+      <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>
+    </button>
     <div class="lang" role="group" aria-label="Language">
       <button type="button" data-lang="pt" aria-pressed="true">PT</button>
       <button type="button" data-lang="en" aria-pressed="false">EN</button>
+    </div>
     </div>
   </header>
 
@@ -133,15 +140,14 @@
           <svg viewBox="0 0 64 64" aria-hidden="true">
             <rect x="6" y="12" width="30" height="9" rx="3" class="bar"/>
             <rect x="6" y="43" width="30" height="9" rx="3" class="bar"/>
-            <path d="M46 14v34M41 43l5 6 5-6" class="arrow"/>
-            <path d="M56 50V16M51 21l5-6 5 6" class="arrow"/>
+            <path d="M41 16.5c18 0 18 31 0 31" class="arrow"/>
+            <path d="M46.5 11.5l-5.5 5 5.5 5M46.5 42.5l-5.5 5 5.5 5" class="arrow"/>
           </svg>
         </button>
       </div>
 
       <div class="op-panel" id="opPanel" hidden>
         <div class="sentence" id="sentence"></div>
-        <div class="notation" id="notation"></div>
         <p class="error" id="opError" aria-live="polite"></p>
         <div class="op-actions">
           <button type="button" class="ghost" id="opCancel" data-i18n="cancel">Cancelar</button>

@@ -19,8 +19,26 @@
   --ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   color-scheme: light;
 }
+:root[data-theme="dark"] {
+  --bg: #15181d;
+  --surface: #1e2229;
+  --ink: #e7e9ec;
+  --muted: #959ca7;
+  --line: #343a45;
+  --accent: #84acd6;
+  --accent-ink: #10151b;
+  --accent-soft: rgba(132, 172, 214, 0.18);
+  --accent-softer: rgba(132, 172, 214, 0.08);
+  --error: #e88d72;
+  --orange: #f0a04b;
+  --orange-soft: rgba(240, 160, 75, 0.14);
+  --green: #6cc892;
+  --green-soft: rgba(108, 200, 146, 0.14);
+  --shadow: none;
+  color-scheme: dark;
+}
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #15181d;
     --surface: #1e2229;
     --ink: #e7e9ec;
@@ -272,3 +290,33 @@ button.back svg { width: 18px; height: 18px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ---------- Theme toggle ---------- */
+.top-right { display: flex; align-items: center; gap: 10px; }
+.theme-btn { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); display: grid; place-items: center; cursor: pointer; color: var(--muted); transition: color .2s, border-color .2s; }
+.theme-btn:hover { color: var(--ink); border-color: var(--muted); }
+.theme-btn svg { width: 17px; height: 17px; grid-area: 1 / 1; transition: transform .35s cubic-bezier(.2,.8,.2,1), opacity .25s; }
+.theme-btn .sun { opacity: 0; transform: rotate(-90deg) scale(.5); }
+:root[data-theme="dark"] .theme-btn .sun { opacity: 1; transform: none; }
+:root[data-theme="dark"] .theme-btn .moon { opacity: 0; transform: rotate(90deg) scale(.5); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-btn .sun { opacity: 1; transform: none; }
+  :root:not([data-theme="light"]) .theme-btn .moon { opacity: 0; transform: rotate(90deg) scale(.5); }
+}
+body, .choice, .op-btn, .op-panel, .pad, .lang, button.ghost { transition-property: background-color, border-color, color, transform, box-shadow; transition-duration: .25s; }
+
+/* ---------- Operation sentence ---------- */
+.sentence { flex-direction: column; }
+.s-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
+.s-add { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.s-branches { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-left: 22px; padding-left: 16px; border-left: 2px solid var(--line); }
+.s-branch { justify-content: flex-start; position: relative; }
+.s-branch::before { content: ""; position: absolute; left: -16px; top: 50%; width: 10px; border-top: 2px solid var(--line); }
+.s-branch.enter { animation: viewIn .3s cubic-bezier(.2,.8,.2,1) both; }
+.mini { width: 28px; height: 28px; border-radius: 50%; border: 0; background: transparent; color: var(--muted); display: grid; place-items: center; cursor: pointer; }
+.mini:hover { background: var(--bg); color: var(--ink); }
+.mini svg { width: 15px; height: 15px; }
+.more { width: 40px; height: 32px; border-radius: 10px; border: 1.5px dashed var(--line); background: transparent; color: var(--muted); display: grid; place-items: center; cursor: pointer; transition: border-color .2s, color .2s, opacity .2s; }
+.more:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.more svg { width: 18px; height: 18px; }
+.history li .ops { display: flex; flex-direction: column; gap: 2px; }

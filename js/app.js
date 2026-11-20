@@ -145,13 +145,16 @@
     if (state.mode === 'random') startWith(randomMatrix(state.rows, state.cols));
     else { buildEntryGrid(); show('entry'); }
   });
-  $('randomSizeBtn').addEventListener('click', async () => {
-    state.rows = randInt(2, 4);
-    state.cols = randInt(state.augmented ? 3 : 2, 5);
+  // Only picks a random size; the person confirms it with "Começar" (and can keep trying).
+  $('randomSizeBtn').addEventListener('click', () => {
+    let r, c;
+    do {
+      r = randInt(2, 4);
+      c = randInt(state.augmented ? 3 : 2, 5);
+    } while (r === state.rows && c === state.cols);
+    state.rows = r; state.cols = c;
     renderSize();
     [$('rowsOut'), $('colsOut')].forEach((o) => o.animate([{ transform: 'scale(1.4)' }, { transform: 'none' }], { duration: D(350) }));
-    await wait(D(450));
-    startWith(randomMatrix(state.rows, state.cols));
   });
 
   // ---------------- Manual entry ----------------

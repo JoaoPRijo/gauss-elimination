@@ -73,7 +73,7 @@
   }
 
   // ---------------- Views ----------------
-  const VIEWS = ['menu', 'echelon', 'practice', 'home', 'size', 'entry', 'work'];
+  const VIEWS = ['menu', 'echelon', 'tutorial', 'practice', 'home', 'size', 'entry', 'work'];
   function show(id) {
     VIEWS.forEach((v) => { $(v).hidden = v !== id; });
     const el = $(id);
@@ -96,6 +96,7 @@
       show('echelon');
       if (h === 'escada-reduzida') requestAnimationFrame(() => $('secRref').scrollIntoView({ behavior: 'smooth', block: 'start' }));
     } else if (h === 'praticar') { if (!practice.card) newCard(false); show('practice'); }
+    else if (h === 'tutorial') { show('tutorial'); requestAnimationFrame(() => renderTutorial(true)); }
     else show('menu');
   }
   window.addEventListener('hashchange', route);
@@ -114,6 +115,7 @@
     if (state.op) renderSentence();
     renderEchelonPage();
     renderPractice();
+    if (!$('tutorial').hidden) renderTutorial(false);
   }
   document.querySelectorAll('.lang button').forEach((b) => b.addEventListener('click', () => {
     state.lang = b.dataset.lang;
@@ -831,6 +833,7 @@
   const toM = (rows) => rows.map((r) => r.map((x) => F.parse(x)));
 
   function renderEchelonPage() {
+    $('howSteps').innerHTML = t('howSteps').map((x) => '<li>' + x + '</li>').join('');
     const ex = window.Echelon.EXAMPLES;
     const section = (id, title, intro, conds, note, examples, non, why) =>
       '<section class="learn-sec" id="' + id + '">' +
@@ -847,6 +850,174 @@
       section('secRef', t('refTitle'), t('refIntro'), t('refConds'), t('refNote'), ex.ref, ex.nonRef, t('nonRefWhy')) +
       section('secRref', t('rrefTitle'), t('rrefIntro'), t('rrefConds'), '', ex.rref, ex.nonRref, t('nonRrefWhy'));
   }
+
+  // ---------------- Tutorial ----------------
+  const tut = { ex: 0, slide: 0 };
+
+  function tutSlides(st) {
+    const s = ['intro', 1];
+    if (!st[0].ok) return s.concat('endNone');
+    s.push(2);
+    if (!st[1].ok) return s.concat('endNone');
+    s.push(3);
+    if (!st[2].ok) return s.concat('endRef');
+    s.push(4);
+    return s.concat(st[3].ok ? 'endRref' : 'endRef');
+  }
+  const listRows = (rows) => {
+    const r = rows.map((x) => x + 1);
+    return r.length === 1 ? String(r[0]) : r.slice(0, -1).join(', ') + ' ' + t('and') + ' ' + r[r.length - 1];
+  };
+
+  function renderTutorial(animate) {
+    const M = toM(window.Echelon.TUTORIAL[tut.ex]);
+    const st = window.Echelon.checkSteps(M);
+    const slides = tutSlides(st);
+    tut.slide = Math.min(tut.slide, slides.length - 1);
+    const cur = slides[tut.slide];
+    // the last check that is shown on this slide (0 = none yet)
+    const lastCheck = typeof cur === 'number' ? cur : cur === 'intro' ? 0 : slides[slides.length - 2];
+
+    // Example tabs
+    $('exTabs').innerHTML = window.Echelon.TUTORIAL.map((_, i) =>
+      '<button type="button" role="tab" aria-selected="' + (i === tut.ex) + '" data-ex="' + i + '">' + t('example') + ' ' + (i + 1) + '</button>').join('');
+    $('exTabs').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { tut.ex = Number(b.dataset.ex); tut.slide = 0; renderTutorial(true); }));
+
+    // Step pills
+    const failAt = st.findIndex((x) => !x.ok);
+    const stop = failAt === -1 ? 4 : (failAt <= 1 ? failAt : (failAt === 2 ? 2 : 3)) + 1; // checks actually done
+    $('stepPills').innerHTML = t('stepNames').map((name, i) => {
+      let cls = 'pending';
+      if (i + 1 < lastCheck || (i + 1 === lastCheck && typeof cur !== 'number')) cls = st[i].ok ? 'ok' : 'bad';
+      if (i + 1 === lastCheck && typeof cur === 'number') cls = 'current ' + (st[i].ok ? 'ok' : 'bad');
+      if (typeof cur === 'string' && cur !== 'intro' && i + 1 > stop) cls = 'skip';
+      return '<li class="' + cls + '"><span class="num">' + (i + 1) + '</span><span class="nm">' + name + '</span></li>';
+    }).join('');
+
+    // Matrix
+    const box = $('tutMatrix');
+    let html = '<div class="smatrix" style="grid-template-columns: repeat(' + M[0].length + ', auto)">';
+    M.forEach((row, r) => row.forEach((x, c) => { html += '<span class="sc" data-r="' + r + '" data-c="' + c + '"><span>' + fracHTML(x) + '</span></span>'; }));
+    box.innerHTML = html + '</div><div class="tut-overlay"></div>';
+    const ov = box.querySelector('.tut-overlay');
+    const cell = (r, c) => box.querySelector(`.sc[data-r="${r}"][data-c="${c}"]`);
+    const base = box.getBoundingClientRect();
+    const rect = (el) => { const q = el.getBoundingClientRect(); return { l: q.left - base.left, t: q.top - base.top, r: q.right - base.left, b: q.bottom - base.top, w: q.width, h: q.height }; };
+    const n = M[0].length;
+    const anim = (el, frames, opts) => { if (animate && !reduceMotion) el.animate(frames, Object.assign({ fill: 'both', easing: 'cubic-bezier(.2,.8,.2,1)' }, opts)); };
+    const band = (cls, a, b2, delay) => {
+      const d = document.createElement('div');
+      d.className = 'band ' + cls;
+      Object.assign(d.style, { left: a.l - 4 + 'px', top: a.t - 2 + 'px', width: b2.r - a.l + 8 + 'px', height: b2.b - a.t + 4 + 'px' });
+      ov.appendChild(d);
+      anim(d, [{ transform: 'scaleX(0)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 450, delay });
+      return d;
+    };
+
+    // Check 1: zero rows
+    if (lastCheck === 1) {
+      st[0].zeroRows.forEach((z, k) => band(z === st[0].zeroRow ? 'bad' : 'zero', rect(cell(z, 0)), rect(cell(z, n - 1)), 250 * k));
+      if (!st[0].ok) {
+        const d = band('below', rect(cell(st[0].row, 0)), rect(cell(st[0].row, n - 1)), 250 * st[0].zeroRows.length + 200);
+        void d;
+      }
+    }
+    // Check 2 onwards: pivots circled
+    if (lastCheck >= 2) {
+      const piv = st[1].pivots;
+      piv.forEach(([r, p], k) => {
+        const el = cell(r, p);
+        el.classList.add('pivot');
+        if (lastCheck === 2 && !st[1].ok && r === st[1].row) el.classList.add('bad');
+        if (lastCheck === 3) el.classList.add(st[2].notOne.includes(r) ? 'bad' : 'good');
+        if (lastCheck === 4) el.classList.add('good');
+        const inner = el.firstElementChild;
+        if (lastCheck === 2) anim(inner, [{ boxShadow: '0 0 0 0 transparent', transform: 'scale(.6)' }, { transform: 'scale(1.15)', offset: .6 }, { transform: 'none' }], { duration: 420, delay: 380 * k });
+        if (lastCheck === 3) anim(inner, [{ transform: 'none' }, { transform: 'scale(1.25)' }, { transform: 'none' }], { duration: 450, delay: 350 * k, fill: 'none' });
+      });
+      // the staircase under the pivots
+      if (lastCheck === 2 && piv.length) {
+        const pts = [];
+        const top = rect(cell(0, 0)).t;
+        piv.forEach(([r, p], k) => {
+          const q = rect(cell(r, p));
+          if (k === 0) pts.push([q.l, top]);
+          else pts.push([q.l, pts[pts.length - 1][1]]);
+          pts.push([q.l, q.b]);
+        });
+        pts.push([rect(cell(0, n - 1)).r, pts[pts.length - 1][1]]);
+        const svgNS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(svgNS, 'svg');
+        svg.setAttribute('class', 'stair' + (st[1].ok ? '' : ' bad'));
+        svg.setAttribute('width', base.width); svg.setAttribute('height', base.height);
+        const path = document.createElementNS(svgNS, 'path');
+        path.setAttribute('d', 'M' + pts.map((pt) => pt.join(' ')).join(' L'));
+        svg.appendChild(path);
+        ov.appendChild(svg);
+        const len = path.getTotalLength();
+        path.style.strokeDasharray = len;
+        path.style.strokeDashoffset = 0;
+        anim(path, [{ strokeDashoffset: len }, { strokeDashoffset: 0 }], { duration: 900, delay: 380 * piv.length + 100, easing: 'ease-in-out' });
+        if (!st[1].ok) {
+          const el = cell(st[1].row, st[1].pivots.find(([r]) => r === st[1].row)[1]).firstElementChild;
+          anim(el, [{ transform: 'none' }, { transform: 'translateX(-5px)' }, { transform: 'translateX(5px)' }, { transform: 'none' }], { duration: 400, delay: 380 * piv.length + 1000, fill: 'none' });
+        }
+      }
+      // Check 4: one column at a time
+      if (lastCheck === 4) {
+        piv.forEach(([, p], k) => {
+          const a = rect(cell(0, p)), b2 = rect(cell(M.length - 1, p));
+          const d = document.createElement('div');
+          d.className = 'band col';
+          Object.assign(d.style, { left: a.l - 2 + 'px', top: a.t - 4 + 'px', width: a.w + 4 + 'px', height: b2.b - a.t + 8 + 'px' });
+          ov.appendChild(d);
+          anim(d, [{ transform: 'scaleY(0)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 400, delay: 600 * k });
+        });
+        st[3].bad.forEach(([r, c]) => {
+          const el = cell(r, c);
+          el.classList.add('pivot', 'bad', 'entry');
+          const k = piv.findIndex(([, p]) => p === c);
+          anim(el.firstElementChild, [{ transform: 'scale(.5)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 350, delay: 600 * k + 350 });
+        });
+      }
+    }
+
+    // Text
+    let text = '';
+    if (cur === 'intro') text = '<p>' + t('tIntro') + '</p>';
+    else if (cur === 1) text = '<h4>' + t('t1Title') + '</h4><p>' + (!st[0].ok ? fill(t('t1Bad'), { z: st[0].zeroRow + 1, r: st[0].row + 1 }) : st[0].zeroRows.length ? t('t1Ok') : t('t1None')) + '</p>';
+    else if (cur === 2) text = '<h4>' + t('t2Title') + '</h4><p>' + (st[1].ok ? t('t2Ok') : fill(t('t2Bad'), { r: st[1].row + 1, p: st[1].prev + 1 })) + '</p>';
+    else if (cur === 3) text = '<p class="sofar">' + t('tRefSoFar') + '</p><h4>' + t('t3Title') + '</h4><p>' + (st[2].ok ? t('t3Ok') : fill(t(st[2].notOne.length > 1 ? 't3BadMany' : 't3Bad'), { rows: listRows(st[2].notOne) })) + '</p>';
+    else if (cur === 4) text = '<h4>' + t('t4Title') + '</h4><p>' + (st[3].ok ? t('t4Ok') : t('t4Bad')) + '</p>';
+    else text = '<p class="end ' + cur + '">' + t({ endNone: 'tEndNone', endRef: 'tEndRef', endRref: 'tEndRref' }[cur]) + '</p>';
+    $('tutText').innerHTML = text;
+    if (animate && !reduceMotion) $('tutText').animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'ease-out' });
+    if (cur === 'endRref' && animate && !reduceMotion) {
+      box.querySelector('.smatrix').animate([{ transform: 'none' }, { transform: 'scale(1.06) rotate(-1.5deg)' }, { transform: 'scale(.98) rotate(1deg)' }, { transform: 'none' }], { duration: 800, easing: 'ease-in-out' });
+    }
+
+    $('tutPrev').disabled = tut.slide === 0 && tut.ex === 0;
+    const atEnd = tut.slide === slides.length - 1;
+    $('tutNext').textContent = atEnd ? (tut.ex < window.Echelon.TUTORIAL.length - 1 ? t('nextExample') : t('practice')) : t('next');
+    tut.slides = slides.length;
+  }
+  $('tutNext').addEventListener('click', () => {
+    if (tut.slide < tut.slides - 1) tut.slide++;
+    else if (tut.ex < window.Echelon.TUTORIAL.length - 1) { tut.ex++; tut.slide = 0; }
+    else { location.hash = 'praticar'; return; }
+    renderTutorial(true);
+  });
+  $('tutPrev').addEventListener('click', () => {
+    if (tut.slide > 0) tut.slide--;
+    else if (tut.ex > 0) { tut.ex--; tut.slide = 99; }
+    renderTutorial(true);
+  });
+  document.addEventListener('keydown', (e) => {
+    if ($('tutorial').hidden || e.metaKey || e.ctrlKey) return;
+    if (e.key === 'ArrowRight') $('tutNext').click();
+    else if (e.key === 'ArrowLeft' && !$('tutPrev').disabled) $('tutPrev').click();
+  });
+  window.addEventListener('resize', () => { if (!$('tutorial').hidden) renderTutorial(false); });
 
   // ---------------- Practice (flash cards) ----------------
   // Two questions per card: "Is it in row echelon form?" and, only if it is,

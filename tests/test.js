@@ -96,4 +96,17 @@ assert.deepStrictEqual(Ech.diagnose(X.nonRef.map(r => r.map(q))).reason, { type:
 X.rref.forEach(m => assert.strictEqual(k(m), 'rref'));
 assert.strictEqual(k(X.nonRref), 'ref');
 assert.deepStrictEqual(Ech.diagnose(X.nonRref.map(r => r.map(q))).reason, { type: 'nonzeroInPivotCol', row: 1, col: 1, other: 0 });
+// Tutorial: example i stops at check i (the last one passes all four), and the
+// four checks agree with the classification for random matrices.
+Ech.TUTORIAL.forEach((m, i) => {
+  const st = Ech.checkSteps(m.map(r => r.map(q)));
+  const firstFail = st.findIndex(x => !x.ok);
+  assert.strictEqual(firstFail, i < 4 ? i : -1, 'tutorial example ' + (i + 1));
+});
+for (let t = 0; t < 3000; t++) {
+  const c = Ech.practiceCard();
+  const st = Ech.checkSteps(c.M);
+  const kind = (!st[0].ok || !st[1].ok) ? 'none' : (!st[2].ok || !st[3].ok) ? 'ref' : 'rref';
+  assert.strictEqual(kind, c.kind);
+}
 console.log('All tests passed');

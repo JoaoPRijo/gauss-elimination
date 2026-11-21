@@ -126,6 +126,45 @@
     return Object.assign({ M }, diagnose(M));
   }
 
+
+  // The four checks of the tutorial, in the order they are taught:
+  // 1. zero rows at the bottom; 2. pivots strictly to the right of the one above;
+  // 3. pivots equal to 1; 4. each pivot is the only nonzero entry of its column.
+  // Each check returns { ok, ... } with what to highlight.
+  function checkSteps(M) {
+    const piv = M.map((row) => Ops.pivotCol(row));
+    const zeroRows = piv.map((p, r) => (p === -1 ? r : -1)).filter((r) => r >= 0);
+    // 1
+    let s1 = { ok: true, zeroRows };
+    for (const z of zeroRows) {
+      const below = piv.findIndex((p, r) => r > z && p !== -1);
+      if (below !== -1) { s1 = { ok: false, zeroRows, zeroRow: z, row: below }; break; }
+    }
+    // 2 (on the nonzero rows, in order)
+    const pivots = piv.map((p, r) => [r, p]).filter(([, p]) => p !== -1);
+    let s2 = { ok: true, pivots };
+    for (let k = 1; k < pivots.length; k++) {
+      if (pivots[k][1] <= pivots[k - 1][1]) { s2 = { ok: false, pivots, row: pivots[k][0], prev: pivots[k - 1][0] }; break; }
+    }
+    // 3
+    const notOne = pivots.filter(([r, p]) => !M[r][p].isOne()).map(([r]) => r);
+    const s3 = { ok: notOne.length === 0, pivots, notOne };
+    // 4
+    const bad = []; // [row, col] entries that should be zero
+    pivots.forEach(([r, p]) => M.forEach((row, s) => { if (s !== r && !row[p].isZero()) bad.push([s, p, r]); }));
+    const s4 = { ok: bad.length === 0, pivots, bad };
+    return [s1, s2, s3, s4];
+  }
+
+  // Tutorial examples: each one stops at a different check (verified in tests/test.js).
+  const TUTORIAL = [
+    [['1', '2', '0'], ['0', '0', '0'], ['0', '3', '1']],              // fails 1
+    [['2', '1', '3'], ['0', '0', '5'], ['0', '4', '1']],              // fails 2
+    [['1', '3', '2'], ['0', '2', '4'], ['0', '0', '0']],              // fails 3
+    [['1', '2', '0', '1'], ['0', '1', '0', '3'], ['0', '0', '1', '-2']], // fails 4
+    [['1', '0', '-1', '2'], ['0', '1', '3', '0'], ['0', '0', '0', '0']]  // reduced
+  ];
+
   // Examples for the explanation page (checked in tests/test.js).
   const EXAMPLES = {
     ref: [[['2', '1', '-1', '3'], ['0', '0', '4', '1'], ['0', '0', '0', '-2']], [['1', '3', '0'], ['0', '-1', '2'], ['0', '0', '0']]],
@@ -134,7 +173,7 @@
     nonRref: [['1', '2', '0'], ['0', '1', '3'], ['0', '0', '0']]
   };
 
-  const api = { diagnose, pivots, practiceCard, randomEchelon, EXAMPLES };
+  const api = { diagnose, pivots, practiceCard, randomEchelon, EXAMPLES, checkSteps, TUTORIAL };
   root.Echelon = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

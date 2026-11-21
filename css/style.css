@@ -405,3 +405,51 @@ button.msg { border: 0; cursor: pointer; font: inherit; }
 .yn button.right, .yn button.wrong { opacity: 1; }
 .yn button.right { border-color: var(--green); background: var(--green-soft); color: var(--green); }
 .yn button.wrong { border-color: var(--error); background: rgba(180, 67, 43, .1); color: var(--error); }
+
+/* ---------- How-to section and links ---------- */
+.how { border-bottom: 0; margin-top: 8px; border-top: 1px solid var(--line); }
+.how ol { padding-left: 22px; }
+a.btn-link2 { display: inline-block; text-decoration: none; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 9px 22px; font-weight: 500; }
+a.btn-link2:hover { border-color: var(--muted); }
+.center-link { text-align: center; margin: -14px 0 6px; }
+.small-link { font-size: .85rem; color: var(--accent); text-decoration: none; }
+.small-link:hover { text-decoration: underline; }
+
+/* ---------- Tutorial ---------- */
+.ex-tabs { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-bottom: 14px; }
+.ex-tabs button { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 12px; font-size: .82rem; cursor: pointer; color: var(--muted); transition: all .2s; }
+.ex-tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.step-pills { list-style: none; display: flex; justify-content: center; flex-wrap: wrap; gap: 6px 14px; padding: 0; margin: 0 0 6px; }
+.step-pills li { display: flex; align-items: center; gap: 6px; font-size: .78rem; color: var(--muted); transition: opacity .3s; }
+.step-pills .num { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid var(--line); font-weight: 600; font-size: .75rem; transition: all .3s; }
+.step-pills li.current { color: var(--ink); font-weight: 600; }
+.step-pills li.current .num { border-color: var(--accent); }
+.step-pills li.ok .num { background: var(--green-soft); border-color: var(--green); color: var(--green); }
+.step-pills li.bad .num { background: rgba(180, 67, 43, .1); border-color: var(--error); color: var(--error); }
+.step-pills li.skip { opacity: .35; text-decoration: line-through; }
+@media (max-width: 520px) { .step-pills .nm { display: none; } .step-pills li.current .nm { display: inline; } }
+
+.tut-stage { display: flex; justify-content: center; padding: 18px 0 8px; }
+.tut-matrix { position: relative; }
+.tut-matrix .smatrix { font-size: 1.4rem; position: relative; z-index: 1; }
+.tut-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+.tut-overlay .stair { position: absolute; left: 0; top: 0; overflow: visible; z-index: 2; }
+.tut-overlay .stair path { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 0; opacity: .8; }
+.tut-overlay .stair.bad path { stroke: var(--error); }
+.band { position: absolute; border-radius: 8px; transform-origin: left center; }
+.band.zero { background: var(--green-soft); }
+.band.bad { background: rgba(180, 67, 43, .14); box-shadow: inset 0 0 0 1.5px var(--error); }
+.band.below { box-shadow: inset 0 0 0 1.5px var(--error); }
+.band.col { background: var(--accent-softer); box-shadow: inset 0 0 0 1px var(--accent-soft); transform-origin: center top; }
+.tut-matrix .sc.pivot > span { display: grid; place-items: center; min-width: 1.8em; height: 1.8em; padding: 0 4px; border-radius: 999px; box-shadow: 0 0 0 2px var(--accent); background: var(--accent-softer); }
+.tut-matrix .sc.pivot.good > span { box-shadow: 0 0 0 2px var(--green); background: var(--green-soft); }
+.tut-matrix .sc.pivot.bad > span { box-shadow: 0 0 0 2px var(--error); background: rgba(180, 67, 43, .12); }
+.tut-matrix .sc.entry > span { border-radius: 8px; }
+.tut-text { max-width: 560px; margin: 10px auto 0; min-height: 96px; text-align: center; }
+.tut-text h4 { margin: 0 0 4px; font-size: 1rem; }
+.tut-text p { margin: 4px 0; line-height: 1.55; }
+.tut-text .sofar { color: var(--muted); font-size: .9rem; }
+.tut-text .end { font-size: 1.05rem; padding: 10px 16px; border-radius: 12px; display: inline-block; }
+.tut-text .end.endNone { background: rgba(180, 67, 43, .1); }
+.tut-text .end.endRef { background: var(--orange-soft); }
+.tut-text .end.endRref { background: var(--green-soft); }

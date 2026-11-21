@@ -59,7 +59,31 @@
       </button>
       <h2 data-i18n="topicEchelon">Matrizes em escada</h2>
       <div id="echelonContent" class="learn"></div>
-      <div class="actions"><a class="primary btn-link" href="#praticar" data-i18n="practice">Praticar</a></div>
+      <section class="learn learn-sec how" id="secHow">
+        <h3 data-i18n="howTitle">Como identificar se uma matriz está em escada de linhas e/ou escada de linhas reduzida</h3>
+        <ol id="howSteps"></ol>
+        <div class="actions">
+          <a class="ghost btn-link2" href="#tutorial" data-i18n="tutorial">Tutorial</a>
+          <a class="primary btn-link" href="#praticar" data-i18n="practice">Praticar</a>
+        </div>
+      </section>
+    </section>
+
+
+    <!-- Tutorial -->
+    <section id="tutorial" class="view" hidden>
+      <button type="button" class="back" data-go="escada" aria-label="←">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <h2 data-i18n="tutorial">Tutorial</h2>
+      <div class="ex-tabs" id="exTabs" role="tablist"></div>
+      <ol class="step-pills" id="stepPills"></ol>
+      <div class="tut-stage"><div class="tut-matrix" id="tutMatrix"></div></div>
+      <div class="tut-text" id="tutText" aria-live="polite"></div>
+      <div class="actions">
+        <button type="button" class="ghost" id="tutPrev" data-i18n="prev">Anterior</button>
+        <button type="button" class="primary" id="tutNext" data-i18n="next">Seguinte</button>
+      </div>
     </section>
 
     <!-- Practice cards -->
@@ -68,6 +92,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
       </button>
       <h2 data-i18n="practiceTitle">Em escada?</h2>
+      <div class="center-link"><a href="#tutorial" class="small-link" data-i18n="seeTutorial">Ver tutorial</a></div>
       <div class="score" id="score"></div>
       <div class="card-area"><div class="card" id="card"></div></div>
       <div class="questions">

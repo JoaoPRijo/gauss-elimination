@@ -852,7 +852,7 @@
   const practice = { card: null, answer: null, correct: 0, total: 0 };
 
   function reasonText(card, answer) {
-    if (card.kind === 'rref') return answer === 'ref' ? t('rRrefAlsoRef') : t('rRref');
+    if (card.kind === 'rref') return t('rRref');
     const r = card.reason;
     const n = (x) => x + 1;
     if (r.type === 'zeroAbove') return fill(t('rZeroAbove'), { z: n(r.zeroRow), r: n(r.row) });

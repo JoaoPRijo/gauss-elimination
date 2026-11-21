@@ -104,7 +104,7 @@
       // a zero row above a nonzero row
       const zr = R.findIndex((row) => row.every((x) => x.isZero()));
       if (zr > 0) { const a = randInt(0, zr - 1, rnd); [R[a], R[zr]] = [R[zr], R[a]]; }
-      else if (m >= 2) { R[0] = R[0].map(() => Fraction.ZERO); }
+      else if (m >= 2) { const a = randInt(0, m - 2, rnd); R[a] = R[a].map(() => Fraction.ZERO); }
     }
     return R;
   }

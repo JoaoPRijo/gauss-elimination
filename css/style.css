@@ -393,3 +393,15 @@ a.btn-link:hover { filter: brightness(1.08); }
 button.msg { border: 0; cursor: pointer; font: inherit; }
 .status .what { display: inline-block; margin-top: 8px; font-size: .88rem; color: var(--accent); text-decoration: none; animation: msgIn .3s both; }
 .status .what:hover { text-decoration: underline; }
+
+/* Practice questions */
+.questions { display: flex; flex-direction: column; align-items: center; gap: 14px; margin-top: 22px; }
+.q { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 16px; animation: viewIn .3s cubic-bezier(.2,.8,.2,1) both; }
+.q p { margin: 0; font-weight: 500; }
+.yn { display: inline-flex; gap: 8px; }
+.yn button { min-width: 72px; border: 1.5px solid var(--line); background: var(--surface); border-radius: 12px; padding: 8px 16px; cursor: pointer; font-weight: 500; transition: border-color .2s, background .2s, color .2s, transform .1s; }
+.yn button:hover:not(:disabled) { border-color: var(--accent); }
+.yn button:disabled { cursor: default; opacity: .45; }
+.yn button.right, .yn button.wrong { opacity: 1; }
+.yn button.right { border-color: var(--green); background: var(--green-soft); color: var(--green); }
+.yn button.wrong { border-color: var(--error); background: rgba(180, 67, 43, .1); color: var(--error); }

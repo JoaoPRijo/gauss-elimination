@@ -70,10 +70,15 @@
       <h2 data-i18n="practiceTitle">Em escada?</h2>
       <div class="score" id="score"></div>
       <div class="card-area"><div class="card" id="card"></div></div>
-      <div class="answers" id="answers">
-        <button type="button" class="answer" data-answer="ref" data-i18n="ansRef">Escada de linhas, mas não reduzida</button>
-        <button type="button" class="answer" data-answer="rref" data-i18n="ansRref">Escada de linhas reduzida</button>
-        <button type="button" class="answer" data-answer="none" data-i18n="ansNone">Não está em escada de linhas</button>
+      <div class="questions">
+        <div class="q" id="q1">
+          <p data-i18n="q1">Está em escada de linhas?</p>
+          <div class="yn" data-q="1"><button type="button" data-v="yes" data-i18n="yes">Sim</button><button type="button" data-v="no" data-i18n="no">Não</button></div>
+        </div>
+        <div class="q" id="q2" hidden>
+          <p data-i18n="q2">É reduzida?</p>
+          <div class="yn" data-q="2"><button type="button" data-v="yes" data-i18n="yes">Sim</button><button type="button" data-v="no" data-i18n="no">Não</button></div>
+        </div>
       </div>
       <p class="feedback" id="feedback" aria-live="polite"></p>
       <div class="actions"><button type="button" class="primary" id="nextCard" data-i18n="next" hidden>Seguinte</button></div>

@@ -849,9 +849,11 @@
   }
 
   // ---------------- Practice (flash cards) ----------------
-  const practice = { card: null, answer: null, correct: 0, total: 0 };
+  // Two questions per card: "Is it in row echelon form?" and, only if it is,
+  // "Is it reduced?". A card counts as correct when every answer is correct.
+  const practice = { card: null, a1: null, a2: null, correct: 0, total: 0 };
 
-  function reasonText(card, answer) {
+  function reasonText(card) {
     if (card.kind === 'rref') return t('rRref');
     const r = card.reason;
     const n = (x) => x + 1;
@@ -860,25 +862,42 @@
     if (r.type === 'pivotNotOne') return fill(t('rPivotNotOne'), { r: n(r.row) });
     return fill(t('rNonzeroPivotCol'), { r: n(r.row), o: n(r.other) });
   }
+  const isRef = (card) => card.kind !== 'none';
+  // finished: null while waiting for an answer, otherwise true/false (all answers right?)
+  function cardResult() {
+    const p = practice;
+    if (p.a1 === null) return null;
+    if (p.a1 !== isRef(p.card)) return false;
+    if (!isRef(p.card)) return true;
+    if (p.a2 === null) return null;
+    return p.a2 === (p.card.kind === 'rref');
+  }
 
   function renderPractice() {
     const p = practice;
     $('score').textContent = p.total ? fill(t('score'), { c: p.correct, t: p.total }) : '';
     if (!p.card) return;
-    $('card').innerHTML = staticMatrix(p.card.M, p.answer !== null);
-    document.querySelectorAll('.answer').forEach((b) => {
-      b.classList.toggle('right', p.answer !== null && b.dataset.answer === p.card.kind);
-      b.classList.toggle('wrong', p.answer !== null && b.dataset.answer === p.answer && p.answer !== p.card.kind);
-      b.disabled = p.answer !== null;
+    const result = cardResult();
+    $('card').innerHTML = staticMatrix(p.card.M, result !== null);
+    const paint = (q, given, truth) => document.querySelectorAll(`.yn[data-q="${q}"] button`).forEach((b) => {
+      const v = b.dataset.v === 'yes';
+      b.classList.toggle('right', given !== null && v === truth && (v === given || result !== null));
+      b.classList.toggle('wrong', given !== null && v === given && given !== truth);
+      b.disabled = given !== null;
     });
+    paint(1, p.a1, isRef(p.card));
+    // The second question appears only after a correct "yes" to the first.
+    const showQ2 = p.a1 === true && isRef(p.card);
+    if ($('q2').hidden === showQ2) $('q2').hidden = !showQ2;
+    paint(2, p.a2, p.card.kind === 'rref');
     const fb = $('feedback');
-    if (p.answer === null) { fb.innerHTML = ''; fb.className = 'feedback'; }
+    if (result === null) { fb.innerHTML = ''; fb.className = 'feedback'; }
     else {
-      const ok = p.answer === p.card.kind;
-      fb.className = 'feedback ' + (ok ? 'ok' : 'no');
-      fb.innerHTML = '<b>' + (ok ? t('correct') : t('wrong')) + '</b> ' + reasonText(p.card, p.answer);
+      fb.className = 'feedback ' + (result ? 'ok' : 'no');
+      fb.innerHTML = '<b>' + (result ? t('correct') : t('wrong')) + '</b> ' +
+        (p.card.kind === 'none' ? reasonText(p.card) : (p.a1 === false ? t('rIsRef') + ' ' : '') + reasonText(p.card));
     }
-    $('nextCard').hidden = p.answer === null;
+    $('nextCard').hidden = result === null;
   }
 
   async function newCard(animate) {
@@ -887,8 +906,7 @@
       await card.animate([{ transform: 'none', opacity: 1 }, { transform: 'translateX(-60px) rotate(-3deg)', opacity: 0 }],
         { duration: 220, easing: 'ease-in', fill: 'forwards' }).finished;
     }
-    practice.card = window.Echelon.practiceCard();
-    practice.answer = null;
+    Object.assign(practice, { card: window.Echelon.practiceCard(), a1: null, a2: null });
     renderPractice();
     card.getAnimations().forEach((a) => a.cancel());
     if (!reduceMotion) {
@@ -896,29 +914,31 @@
         { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)' });
     }
   }
-  function answerCard(a) {
+  function answer(q, yes) {
     const p = practice;
-    if (!p.card || p.answer !== null) return;
-    p.answer = a;
-    p.total++;
-    if (a === p.card.kind) p.correct++;
+    if (!p.card || cardResult() !== null) return;
+    if (q === 1 && p.a1 === null) p.a1 = yes;
+    else if (q === 2 && p.a1 !== null && p.a2 === null) p.a2 = yes;
+    else return;
+    const result = cardResult();
+    if (result !== null) { p.total++; if (result) p.correct++; }
     renderPractice();
-    const card = $('card');
-    if (!reduceMotion) {
-      card.animate(a === p.card.kind
+    if (result !== null && !reduceMotion) {
+      $('card').animate(result
         ? [{ transform: 'scale(1)' }, { transform: 'scale(1.04)' }, { transform: 'scale(1)' }]
         : [{ transform: 'none' }, { transform: 'translateX(-8px)' }, { transform: 'translateX(8px)' }, { transform: 'none' }],
         { duration: 350, easing: 'ease-out' });
     }
-    $('nextCard').focus({ preventScroll: true });
+    if (result !== null) $('nextCard').focus({ preventScroll: true });
   }
-  document.querySelectorAll('.answer').forEach((b) => b.addEventListener('click', () => answerCard(b.dataset.answer)));
+  document.querySelectorAll('.yn button').forEach((b) => b.addEventListener('click', () => answer(Number(b.parentElement.dataset.q), b.dataset.v === 'yes')));
   $('nextCard').addEventListener('click', () => newCard(true));
   document.addEventListener('keydown', (e) => {
     if ($('practice').hidden || e.metaKey || e.ctrlKey) return;
-    const map = { 1: 'ref', 2: 'rref', 3: 'none' };
-    if (map[e.key] && practice.answer === null) answerCard(map[e.key]);
-    else if ((e.key === 'Enter' || e.key === ' ') && practice.answer !== null && document.activeElement !== $('nextCard')) { e.preventDefault(); newCard(true); }
+    const k = e.key.toLowerCase();
+    const yes = k === 's' || k === 'y' || k === '1', no = k === 'n' || k === '2';
+    if ((yes || no) && cardResult() === null) answer(practice.a1 === null ? 1 : 2, yes);
+    else if ((e.key === 'Enter' || e.key === ' ') && cardResult() !== null && document.activeElement !== $('nextCard')) { e.preventDefault(); newCard(true); }
   });
 
   // ---------------- Light / dark mode ----------------

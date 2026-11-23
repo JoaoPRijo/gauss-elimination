@@ -47,11 +47,10 @@
   }
   const coefHTML = (absK) => (absK.isOne() ? '' : fracHTML(absK));
 
-  // Notation: L1 ↔ L2 for a swap and L2' = aL2 + bL1 for the combined operation.
+  // Notation: L1 ↔ L2 (swap), L2' = kL2 (multiply), L2' = L2 + kL1 (add).
   // A coefficient 1 is omitted, −1 is written as a minus sign.
   function combTerms(op, fmt) {
-    const terms = [[op.a, op.i]];
-    if (op.j !== null && op.j !== undefined && !op.b.isZero()) terms.push([op.b, op.j]);
+    const terms = op.type === 'mul' ? [[op.k, op.i]] : [[F.ONE, op.i], [op.k, op.j]];
     return terms.map(([k, r], idx) => {
       const neg = k.sign() < 0;
       const sign = idx === 0 ? (neg ? fmt.minus : '') : (neg ? fmt.sub : fmt.plus);
@@ -445,20 +444,21 @@
 
   // ---------------- Building an operation ----------------
   // Two kinds of operation:
-  //  - "comb": one or more lines  Li' = a·Li + b·Lj  (a ≠ 0; the b·Lj part is optional),
-  //    applied together;
+  //  - "mul": one or more lines  Li' = a·Li  (a ≠ 0), applied together;
+  //  - "add": one or more lines  Li' = Li + b·Lj, applied together;
   //  - "swap": Li ↔ Lj.
+  // Internally every line is {i, a, b, j}; "mul" uses a, "add" uses b and j.
   // On a computer the numbers are typed directly; on touch screens the number pad opens.
   const finePointer = window.matchMedia('(pointer: fine)').matches;
-  const newLine = () => ({ i: null, a: F.ONE, b: null, j: null });
+  const newLine = (type) => ({ i: null, a: type === 'add' ? F.ONE : null, b: null, j: null });
+  const FIELDS = { mul: ['i', 'a'], add: ['i', 'b', 'j'], swap: ['i', 'j'] };
   const ROW_FIELDS = ['i', 'j'];
 
   document.querySelectorAll('.op-btn').forEach((b) => b.addEventListener('click', () => {
     if (state.busy) return;
     if (state.op && state.op.type === b.dataset.op) { cancelOp(); return; }
-    state.op = b.dataset.op === 'comb'
-      ? { type: 'comb', lines: [newLine()], active: { line: 0, f: 'i' } }
-      : { type: 'swap', lines: [{ i: null, j: null }], active: { line: 0, f: 'i' } };
+    const type = b.dataset.op;
+    state.op = { type, lines: [newLine(type)], active: { line: 0, f: 'i' } };
     $('opPanel').hidden = false;
     $('opError').textContent = '';
     renderOpButtons();
@@ -467,7 +467,7 @@
   function renderOpButtons() {
     document.querySelectorAll('.op-btn').forEach((b) => {
       b.setAttribute('aria-pressed', String(!!state.op && state.op.type === b.dataset.op));
-      b.disabled = current().M.length < 2 && b.dataset.op === 'swap';
+      b.disabled = current().M.length < 2 && b.dataset.op !== 'mul';
     });
   }
   function cancelOp() {
@@ -532,7 +532,7 @@
     const line = state.op.lines[li];
     const text = inp.value.replace(/−/g, '-').trim();
     if (text === '' || text === '-') {
-      line[f] = f === 'a' ? F.ONE : null;
+      line[f] = null;
       if (!quiet) renderSentence(); else refreshApply();
       return true;
     }
@@ -542,6 +542,7 @@
     if (err) {
       inp.classList.add('invalid');
       $('opError').textContent = t(err);
+      if (!quiet) inp.select();   // the next key replaces the wrong value
       return false;
     }
     line[f] = res.value;
@@ -557,15 +558,15 @@
     const op = state.op;
     const box = $('sentence');
     box.innerHTML = '';
-    if (op.type === 'comb') {
+    if (op.type !== 'swap') {
       const wrap = document.createElement('div');
       wrap.className = 's-comb';
       op.lines.forEach((l, li) => {
         const row = document.createElement('div');
         row.className = 's-line c-line' + (newLineAdded && li === op.lines.length - 1 ? ' enter' : '');
-        row.append(rowSlot(li, 'i', true), word('=', 'sym'), numSlot(li, 'a'),
-          html(l.i === null ? t('row') + '<sub>&#9633;</sub>' : rowHTML(l.i), 'echo'),
-          word('+', 'sym'), numSlot(li, 'b'), rowSlot(li, 'j', false));
+        const echo = html(l.i === null ? t('row') + '<sub>&#9633;</sub>' : rowHTML(l.i), 'echo');
+        if (op.type === 'mul') row.append(rowSlot(li, 'i', true), word('=', 'sym'), numSlot(li, 'a'), echo);
+        else row.append(rowSlot(li, 'i', true), word('=', 'sym'), echo, word('+', 'sym'), numSlot(li, 'b'), rowSlot(li, 'j', false));
         if (op.lines.length > 1) {
           const rm = document.createElement('button');
           rm.type = 'button'; rm.className = 'mini'; rm.title = t('removeRow'); rm.setAttribute('aria-label', t('removeRow'));
@@ -578,7 +579,8 @@
       const more = document.createElement('button');
       more.type = 'button'; more.className = 'more'; more.title = t('addRow'); more.setAttribute('aria-label', t('addRow'));
       more.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg>';
-      more.disabled = !op.lines.every((l) => l.i !== null) || op.lines.length >= current().M.length;
+      // "add" needs at least one row that is not changed (to be added to the others)
+      more.disabled = !op.lines.every((l) => l.i !== null) || op.lines.length >= current().M.length - (op.type === 'add' ? 1 : 0);
       more.addEventListener('click', addLine);
       wrap.appendChild(more);
       box.appendChild(wrap);
@@ -605,12 +607,7 @@
   }
 
   function lineProblems(l) {
-    if (l.i === null) return 'incomplete';
-    if (state.op.type === 'swap') return l.j === null ? 'incomplete' : null;
-    const hasB = l.b !== null && !l.b.isZero();
-    if ((l.b === null) !== (l.j === null)) return 'incomplete';
-    if (l.a.isOne() && !hasB) return 'nothing';
-    return null;
+    return FIELDS[state.op.type].every((f) => l[f] !== null) ? null : 'incomplete';
   }
   function opValid() {
     const op = state.op;
@@ -646,7 +643,7 @@
         text: line[f] === null ? '' : line[f].toString(),
         allowEmpty: true,
         validate: (v) => (f === 'a' && v.isZero() ? 'errZero' : null),
-        onOk: (v) => { line[f] = v === null ? (f === 'a' ? F.ONE : null) : v; advance(); },
+        onOk: (v) => { line[f] = v; advance(); },
         onClose: () => renderSentence()
       });
     } else closePad(true);
@@ -656,7 +653,7 @@
   function advance() {
     const op = state.op;
     if (!op) return;
-    const order = op.type === 'comb' ? ['i', 'b', 'j'] : ['i', 'j'];
+    const order = FIELDS[op.type];
     const start = op.active ? op.active.line : 0;
     for (let k = 0; k < op.lines.length; k++) {
       const li = (start + k) % op.lines.length;
@@ -674,7 +671,7 @@
     let { line: li, f } = op.active;
     const line = op.lines[li];
     // A tap on the matrix while a number box is active fills the row that is still missing.
-    if (!ROW_FIELDS.includes(f)) f = line.i === null ? 'i' : 'j';
+    if (!ROW_FIELDS.includes(f)) f = line.i === null || op.type === 'mul' ? 'i' : 'j';
     // Rows that change cannot be used anywhere else in the same operation
     // (so applying all lines together is the same as applying them one by one).
     let clash;
@@ -706,10 +703,8 @@
   function buildOps() {
     const op = state.op;
     if (op.type === 'swap') return [{ type: 'swap', i: op.lines[0].i, j: op.lines[0].j }];
-    return op.lines.map((l) => {
-      const hasB = l.b !== null && !l.b.isZero();
-      return { type: 'comb', i: l.i, a: l.a, j: hasB ? l.j : null, b: hasB ? l.b : null };
-    });
+    if (op.type === 'mul') return op.lines.map((l) => ({ type: 'mul', i: l.i, k: l.a }));
+    return op.lines.map((l) => ({ type: 'add', i: l.i, j: l.j, k: l.b }));
   }
 
   $('opCancel').addEventListener('click', cancelOp);
@@ -740,7 +735,10 @@
     cancelOp();
     state.busy = true;
     try {
-      if (type === 'comb') await animateComb(ops, M);
+      // multiply: ×k sweeps across the row; add: the other row jumps out, ×k, and drops in
+      if (type !== 'swap') await animateComb(ops.map((o) => (o.type === 'mul'
+        ? { i: o.i, a: o.k, j: null, b: null }
+        : { i: o.i, a: F.ONE, j: o.j, b: o.k })), M);
       state.steps.push({ M, ids, ops });
       renderMatrix(type === 'swap', SWAP_MS);
       if (type === 'swap') await wait(D(SWAP_MS + 30));

@@ -37,6 +37,11 @@ assert.throws(() => Ops.swap(M, 1, 1));
 assert.throws(() => Ops.addMultiple(M, 1, 1, q('2')));
 assert.strictEqual(show(Ops.addMultiple(M, 1, 0, F.ZERO)), show(M), 'adding 0 times a row is allowed');
 assert.strictEqual(show(Ops.apply(M, { type: 'mul', i: 0, k: q('-1') })), '-1 -2 1 -3 | 2 1 1 7 | 3 -1 2 4');
+// Combined operation Li <- a Li + b Lj
+assert.strictEqual(show(Ops.apply(M, { type: 'comb', i: 1, a: q('2'), j: 0, b: q('-4') })), '1 2 -1 3 | 0 -6 6 2 | 3 -1 2 4');
+assert.strictEqual(show(Ops.apply(M, { type: 'comb', i: 2, a: q('1/3'), j: null, b: null })), '1 2 -1 3 | 2 1 1 7 | 1 -1/3 2/3 4/3');
+assert.throws(() => Ops.apply(M, { type: 'comb', i: 1, a: F.ZERO, j: 0, b: q('1') }));
+assert.throws(() => Ops.apply(M, { type: 'comb', i: 1, a: q('2'), j: 1, b: q('1') }));
 // Number pad parser
 const P = (s) => { const r = F.parseInput(s); return r.error || r.value.toString(); };
 assert.strictEqual(P('4/6'), '2/3'); assert.strictEqual(P('-12'), '-12'); assert.strictEqual(P('-0'), '0');

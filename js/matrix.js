@@ -30,7 +30,19 @@
     return R;
   }
 
+  // Li <- a Li + b Lj, with a != 0 and i != j (a combination of the two
+  // elementary operations "multiply" and "add a multiple"). Without j it is a Li.
+  function combine(M, i, a, j, b) {
+    if (a.isZero()) throw new RangeError('zero-scalar');
+    if (j === null || j === undefined) return scale(M, i, a);
+    if (i === j) throw new RangeError('same-row');
+    const R = copy(M);
+    R[i] = R[i].map((x, c) => a.mul(x).add(b.mul(M[j][c])));
+    return R;
+  }
+
   function apply(M, op) {
+    if (op.type === 'comb') return combine(M, op.i, op.a, op.j, op.b);
     if (op.type === 'swap') return swap(M, op.i, op.j);
     if (op.type === 'mul') return scale(M, op.i, op.k);
     if (op.type === 'add') return addMultiple(M, op.i, op.j, op.k);
@@ -68,7 +80,7 @@
     return true;
   }
 
-  const api = { copy, swap, scale, addMultiple, apply, pivotCol, isRowEchelon, isReducedRowEchelon };
+  const api = { copy, swap, scale, addMultiple, combine, apply, pivotCol, isRowEchelon, isReducedRowEchelon };
   root.MatrixOps = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

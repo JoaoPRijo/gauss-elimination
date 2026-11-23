@@ -19,7 +19,7 @@
     augmented: true,
     entries: Array.from({ length: MAX }, () => Array(MAX).fill('')), // text typed on the pad
     steps: [],               // [{ M, ids, op }]; steps[0] is the initial matrix (op = null)
-    op: null,                // operation being built: { type, slots: [{ kind, value }], active }
+    op: null,                // operation being built: { type, lines: [{ i, a, b, j }], active: { line, f } }
     busy: false              // true while an animation runs
   };
 
@@ -47,20 +47,25 @@
   }
   const coefHTML = (absK) => (absK.isOne() ? '' : fracHTML(absK));
 
-  // Standard notation, e.g. L2 ← L2 − 3L1
+  // Notation: L1 ↔ L2 for a swap and L2' = aL2 + bL1 for the combined operation.
+  // A coefficient 1 is omitted, −1 is written as a minus sign.
+  function combTerms(op, fmt) {
+    const terms = [[op.a, op.i]];
+    if (op.j !== null && op.j !== undefined && !op.b.isZero()) terms.push([op.b, op.j]);
+    return terms.map(([k, r], idx) => {
+      const neg = k.sign() < 0;
+      const sign = idx === 0 ? (neg ? fmt.minus : '') : (neg ? fmt.sub : fmt.plus);
+      return sign + (k.abs().isOne() ? '' : fmt.num(k.abs())) + fmt.row(r);
+    }).join('');
+  }
   function opHTML(op) {
     if (op.type === 'swap') return rowHTML(op.i) + ' ↔ ' + rowHTML(op.j);
-    if (op.type === 'mul') return rowHTML(op.i) + ' ← ' + (op.k.sign() < 0 ? MINUS : '') + coefHTML(op.k.abs()) + rowHTML(op.i);
-    if (op.k.isZero()) return rowHTML(op.i) + ' ← ' + rowHTML(op.i) + ' + 0' + rowHTML(op.j);
-    return rowHTML(op.i) + ' ← ' + rowHTML(op.i) + (op.k.sign() < 0 ? ' ' + MINUS + ' ' : ' + ') + coefHTML(op.k.abs()) + rowHTML(op.j);
+    return rowHTML(op.i) + '′ = ' + combTerms(op, { minus: MINUS, sub: ' ' + MINUS + ' ', plus: ' + ', num: fracHTML, row: rowHTML });
   }
   function opLatex(op) {
     const R = (i) => t('row') + '_{' + (i + 1) + '}';
-    const c = (absK) => (absK.isOne() ? '' : absK.toLatex());
     if (op.type === 'swap') return R(op.i) + ' \\leftrightarrow ' + R(op.j);
-    if (op.type === 'mul') return R(op.i) + ' \\leftarrow ' + (op.k.sign() < 0 ? '-' : '') + c(op.k.abs()) + R(op.i);
-    if (op.k.isZero()) return R(op.i) + ' \\leftarrow ' + R(op.i) + ' + 0' + R(op.j);
-    return R(op.i) + ' \\leftarrow ' + R(op.i) + (op.k.sign() < 0 ? ' - ' : ' + ') + c(op.k.abs()) + R(op.j);
+    return R(op.i) + "' = " + combTerms(op, { minus: '-', sub: ' - ', plus: ' + ', num: (k) => k.toLatex(), row: R });
   }
   // Several simultaneous operations are stacked over one arrow.
   function stepLatex(ops) {
@@ -164,7 +169,7 @@
   }
   $('sizeNext').addEventListener('click', () => {
     if (state.mode === 'random') startWith(randomMatrix(state.rows, state.cols));
-    else { buildEntryGrid(); show('entry'); }
+    else { buildEntryGrid(); show('entry'); if (finePointer) entryCell(0, 0).focus(); }
   });
   // Only picks a random size; the person confirms it with "Começar" (and can keep trying).
   $('randomSizeBtn').addEventListener('click', () => {
@@ -190,6 +195,7 @@
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (aug && c === cols - 1) { const s = document.createElement('div'); s.className = 'sep'; g.appendChild(s); }
+        if (finePointer) { g.appendChild(entryInput(r, c)); continue; }
         const b = document.createElement('button');
         b.type = 'button'; b.className = 'entry-cell';
         b.dataset.r = r; b.dataset.c = c;
@@ -200,6 +206,36 @@
       }
     }
     $('entryError').textContent = '';
+  }
+  // On a computer the entries are typed directly (digits, "-" and "/" only).
+  function entryInput(r, c) {
+    const inp = document.createElement('input');
+    inp.className = 'entry-cell entry-input';
+    inp.dataset.r = r; inp.dataset.c = c;
+    inp.placeholder = '0';
+    inp.spellcheck = false;
+    inp.setAttribute('aria-label', 'a' + (r + 1) + (c + 1));
+    inp.value = state.entries[r][c].replace(/-/g, MINUS);
+    inp.addEventListener('input', () => {
+      const clean = inp.value.replace(/\u2212/g, '-').replace(/[^0-9/-]/g, '');
+      inp.value = clean.replace(/-/g, MINUS);
+      state.entries[r][c] = clean;
+      inp.classList.remove('invalid');
+      $('entryError').textContent = '';
+    });
+    inp.addEventListener('blur', () => {
+      const s = state.entries[r][c];
+      if (s !== '' && F.parseInput(s).error) inp.classList.add('invalid');
+    });
+    inp.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      let nr = r, nc = c + 1;
+      if (nc >= state.cols) { nc = 0; nr++; }
+      if (nr < state.rows) entryCell(nr, nc).focus();
+      else $('entryDone').click();
+    });
+    return inp;
   }
   const entryCell = (r, c) => $('entryGrid').querySelector(`[data-r="${r}"][data-c="${c}"]`);
   function paintEntry(r, c) {
@@ -228,6 +264,12 @@
   }
   $('entryDone').addEventListener('click', () => {
     closePad();
+    let bad = false;
+    for (let r = 0; r < state.rows; r++) for (let c = 0; c < state.cols; c++) {
+      const s = state.entries[r][c];
+      if (s !== '' && F.parseInput(s).error) { bad = true; entryCell(r, c).classList.add('invalid'); }
+    }
+    if (bad) { $('entryError').textContent = t('errNumber'); return; }
     const M = [];
     for (let r = 0; r < state.rows; r++) {
       const row = [];
@@ -244,6 +286,7 @@
   let pad = null; // { text, allowEmpty, validate, onOk, onClose }
   function openPad(opts) {
     pad = Object.assign({ text: '', allowEmpty: false }, opts);
+    pad.fresh = pad.text !== '';   // like a selected value: the first digit replaces it
     $('pad').hidden = false; $('padBackdrop').hidden = false;
     $('padError').textContent = '';
     renderPad();
@@ -255,7 +298,8 @@
     if (!silent && p.onClose) p.onClose();
   }
   function renderPad() {
-    $('padDisplay').innerHTML = escapeHTML(pad.text.replace(/-/g, MINUS)) + '<span class="caret"></span>';
+    const txt = escapeHTML(pad.text.replace(/-/g, MINUS));
+    $('padDisplay').innerHTML = (pad.fresh ? '<span class="sel">' + txt + '</span>' : txt) + '<span class="caret"></span>';
   }
   function escapeHTML(s) { return s.replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch])); }
   function padError(key) {
@@ -267,6 +311,8 @@
     if (!pad) return;
     $('padError').textContent = '';
     let s = pad.text;
+    if (pad.fresh && (/^\d$/.test(key) || key === 'back' || key === '-')) s = '';
+    if (key !== 'ok') pad.fresh = false;
     if (key === 'back') s = s.slice(0, -1);
     else if (key === '-') s = s.startsWith('-') ? s.slice(1) : '-' + s;   // the sign goes in front
     else if (key === '/') { if (/\d$/.test(s) && !s.includes('/')) s += '/'; }
@@ -305,7 +351,7 @@
     }
     if ($('work').hidden || $('stepsDialog').open) return;
     if (e.key === 'Escape' && state.op) cancelOp();
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); undo(); }
   });
 
   // ---------------- Work view ----------------
@@ -398,24 +444,30 @@
   }
 
   // ---------------- Building an operation ----------------
-  // "add" has one source row followed by one or more (number, target row) pairs:
-  // slots = [row(source), num, row(target), num, row(target), ...]
-  const SLOT_KINDS = { add: ['row', 'num', 'row'], mul: ['row', 'num'], swap: ['row', 'row'] };
-  const SENTENCE = { mul: 'sentMul', swap: 'sentSwap' };
+  // Two kinds of operation:
+  //  - "comb": one or more lines  Li' = a·Li + b·Lj  (a ≠ 0; the b·Lj part is optional),
+  //    applied together;
+  //  - "swap": Li ↔ Lj.
+  // On a computer the numbers are typed directly; on touch screens the number pad opens.
+  const finePointer = window.matchMedia('(pointer: fine)').matches;
+  const newLine = () => ({ i: null, a: F.ONE, b: null, j: null });
+  const ROW_FIELDS = ['i', 'j'];
 
   document.querySelectorAll('.op-btn').forEach((b) => b.addEventListener('click', () => {
     if (state.busy) return;
     if (state.op && state.op.type === b.dataset.op) { cancelOp(); return; }
-    state.op = { type: b.dataset.op, slots: SLOT_KINDS[b.dataset.op].map((kind) => ({ kind, value: null })), active: 0 };
+    state.op = b.dataset.op === 'comb'
+      ? { type: 'comb', lines: [newLine()], active: { line: 0, f: 'i' } }
+      : { type: 'swap', lines: [{ i: null, j: null }], active: { line: 0, f: 'i' } };
     $('opPanel').hidden = false;
     $('opError').textContent = '';
     renderOpButtons();
-    setActive(0, false);
+    renderSentence();
   }));
   function renderOpButtons() {
     document.querySelectorAll('.op-btn').forEach((b) => {
       b.setAttribute('aria-pressed', String(!!state.op && state.op.type === b.dataset.op));
-      b.disabled = current().M.length < 2 && b.dataset.op !== 'mul';
+      b.disabled = current().M.length < 2 && b.dataset.op === 'swap';
     });
   }
   function cancelOp() {
@@ -427,109 +479,208 @@
     paintChosen();
   }
 
-  function slotButton(idx) {
-    const op = state.op;
-    const slot = op.slots[idx];
+  const isActive = (li, f) => state.op && state.op.active && state.op.active.line === li && state.op.active.f === f;
+
+  function rowSlot(li, f, prime) {
+    const v = state.op.lines[li][f];
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'slot ' + slot.kind + '-slot' + (slot.value !== null ? ' filled' : '') + (op.active === idx ? ' active' : '');
-    b.innerHTML = '<span>' + (slot.value === null ? '&nbsp;' : slot.kind === 'row' ? rowHTML(slot.value) : fracHTML(slot.value)) + '</span>';
-    b.addEventListener('click', () => { if (!state.busy) setActive(idx, true); });
+    b.className = 'slot row-slot' + (v !== null ? ' filled' : '') + (isActive(li, f) ? ' active' : '');
+    b.dataset.line = li; b.dataset.f = f;
+    b.innerHTML = '<span>' + (v === null ? '&nbsp;' : rowHTML(v) + (prime ? '′' : '')) + '</span>';
+    b.addEventListener('click', () => { if (!state.busy) setActive(li, f, false); });
     return b;
   }
-  const word = (text) => { const s = document.createElement('span'); s.textContent = text; return s; };
-  const line = (cls) => { const d = document.createElement('div'); d.className = cls; return d; };
 
-  function renderSentence(newPair) {
+  function numSlot(li, f) {
+    const line = state.op.lines[li];
+    const v = line[f];
+    if (finePointer) {
+      // Typed directly: digits, "-" and "/" only (no decimals).
+      const inp = document.createElement('input');
+      inp.className = 'slot num-input' + (v !== null ? ' filled' : '') + (isActive(li, f) ? ' active' : '');
+      inp.dataset.line = li; inp.dataset.f = f;
+      inp.value = v === null ? '' : v.toString().replace('-', MINUS);
+      inp.size = Math.max(2, inp.value.length + 1);
+      inp.setAttribute('aria-label', f);
+      inp.spellcheck = false;
+      inp.addEventListener('focus', () => { state.op.active = { line: li, f }; markActive(); inp.select(); });
+      inp.addEventListener('input', () => {
+        const clean = inp.value.replace(/−/g, '-').replace(/[^0-9/-]/g, '');
+        inp.value = clean.replace(/-/g, MINUS);
+        inp.size = Math.max(2, inp.value.length + 1);
+        inp.classList.remove('invalid');
+        $('opError').textContent = '';
+      });
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); if (commitNum(li, f, inp)) advance(); }
+      });
+      inp.addEventListener('blur', () => { if (state.op && state.op.lines[li] === line) commitNum(li, f, inp, true); });
+      return inp;
+    }
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'slot num-slot' + (v !== null ? ' filled' : '') + (isActive(li, f) ? ' active' : '');
+    b.dataset.line = li; b.dataset.f = f;
+    b.innerHTML = '<span>' + (v === null ? '&nbsp;' : fracHTML(v)) + '</span>';
+    b.addEventListener('click', () => { if (!state.busy) setActive(li, f, true); });
+    return b;
+  }
+
+  // Read a typed number. Returns true when the value was accepted.
+  function commitNum(li, f, inp, quiet) {
+    const line = state.op.lines[li];
+    const text = inp.value.replace(/−/g, '-').trim();
+    if (text === '' || text === '-') {
+      line[f] = f === 'a' ? F.ONE : null;
+      if (!quiet) renderSentence(); else refreshApply();
+      return true;
+    }
+    const res = F.parseInput(text);
+    let err = res.error;
+    if (!err && f === 'a' && res.value.isZero()) err = 'errZero';
+    if (err) {
+      inp.classList.add('invalid');
+      $('opError').textContent = t(err);
+      return false;
+    }
+    line[f] = res.value;
+    inp.classList.add('filled');
+    if (!quiet) renderSentence(); else refreshApply();
+    return true;
+  }
+
+  function word(text, cls) { const s = document.createElement('span'); s.textContent = text; if (cls) s.className = cls; return s; }
+  function html(h, cls) { const s = document.createElement('span'); s.innerHTML = h; if (cls) s.className = cls; return s; }
+
+  function renderSentence(newLineAdded) {
     const op = state.op;
     const box = $('sentence');
     box.innerHTML = '';
-    if (op.type === 'add') {
-      const wrap = line('s-add');
-      const head = line('s-line');
-      head.append(word(t('addHead')), slotButton(0));
-      wrap.appendChild(head);
-      const branches = line('s-branches');
-      const pairs = (op.slots.length - 1) / 2;
-      for (let p = 0; p < pairs; p++) {
-        const l = line('s-line s-branch');
-        l.append(word(t('addTimes')), slotButton(1 + 2 * p), word(t('addTo')), slotButton(2 + 2 * p));
-        if (pairs > 1) {
+    if (op.type === 'comb') {
+      const wrap = document.createElement('div');
+      wrap.className = 's-comb';
+      op.lines.forEach((l, li) => {
+        const row = document.createElement('div');
+        row.className = 's-line c-line' + (newLineAdded && li === op.lines.length - 1 ? ' enter' : '');
+        row.append(rowSlot(li, 'i', true), word('=', 'sym'), numSlot(li, 'a'),
+          html(l.i === null ? t('row') + '<sub>&#9633;</sub>' : rowHTML(l.i), 'echo'),
+          word('+', 'sym'), numSlot(li, 'b'), rowSlot(li, 'j', false));
+        if (op.lines.length > 1) {
           const rm = document.createElement('button');
           rm.type = 'button'; rm.className = 'mini'; rm.title = t('removeRow'); rm.setAttribute('aria-label', t('removeRow'));
           rm.innerHTML = '<svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg>';
-          rm.addEventListener('click', () => removePair(p));
-          l.appendChild(rm);
+          rm.addEventListener('click', () => removeLine(li));
+          row.appendChild(rm);
         }
-        if (newPair && p === pairs - 1) l.classList.add('enter');
-        branches.appendChild(l);
-      }
-      // "+" adds another target row that uses the same source row.
+        wrap.appendChild(row);
+      });
       const more = document.createElement('button');
       more.type = 'button'; more.className = 'more'; more.title = t('addRow'); more.setAttribute('aria-label', t('addRow'));
       more.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg>';
-      more.disabled = !op.slots.every((s) => s.value !== null) || pairs >= current().M.length - 1;
-      more.addEventListener('click', addPair);
-      branches.appendChild(more);
-      wrap.appendChild(branches);
+      more.disabled = !op.lines.every((l) => l.i !== null) || op.lines.length >= current().M.length;
+      more.addEventListener('click', addLine);
+      wrap.appendChild(more);
       box.appendChild(wrap);
     } else {
-      const l = line('s-line');
-      t(SENTENCE[op.type]).forEach((part) => l.appendChild(typeof part === 'string' ? word(part) : slotButton(part)));
-      box.appendChild(l);
+      const row = document.createElement('div');
+      row.className = 's-line';
+      t('sentSwap').forEach((part) => row.appendChild(typeof part === 'string' ? word(part) : rowSlot(0, part === 0 ? 'i' : 'j', false)));
+      box.appendChild(row);
     }
-    $('opApply').disabled = !op.slots.every((s) => s.value !== null);
-    $('matrix').classList.toggle('picking', op.active >= 0 && op.slots[op.active].kind === 'row');
+    refreshApply();
+    markActive();
+    // keep the keyboard focus on the active number box
+    if (finePointer && op.active && !ROW_FIELDS.includes(op.active.f)) {
+      const inp = box.querySelector(`.num-input[data-line="${op.active.line}"][data-f="${op.active.f}"]`);
+      if (inp) inp.focus({ preventScroll: true });
+    }
+  }
+
+  function markActive() {
+    const op = state.op;
+    $('sentence').querySelectorAll('.slot').forEach((el) => el.classList.toggle('active', isActive(Number(el.dataset.line), el.dataset.f)));
+    $('matrix').classList.toggle('picking', !!op.active);
     paintChosen();
   }
 
-  function addPair() {
+  function lineProblems(l) {
+    if (l.i === null) return 'incomplete';
+    if (state.op.type === 'swap') return l.j === null ? 'incomplete' : null;
+    const hasB = l.b !== null && !l.b.isZero();
+    if ((l.b === null) !== (l.j === null)) return 'incomplete';
+    if (l.a.isOne() && !hasB) return 'nothing';
+    return null;
+  }
+  function opValid() {
     const op = state.op;
-    op.slots.push({ kind: 'num', value: null }, { kind: 'row', value: null });
-    op.active = op.slots.length - 2;
+    if (!op.lines.every((l) => lineProblems(l) === null)) return false;
+    const targets = op.lines.map((l) => l.i);
+    if (new Set(targets).size !== targets.length) return false;
+    return op.lines.every((l) => l.j === null || !targets.includes(l.j));
+  }
+  function refreshApply() { $('opApply').disabled = !opValid(); }
+
+  function addLine() {
+    state.op.lines.push(newLine());
+    state.op.active = { line: state.op.lines.length - 1, f: 'i' };
     renderSentence(true);
   }
-  function removePair(p) {
+  function removeLine(li) {
     const op = state.op;
-    op.slots.splice(1 + 2 * p, 2);
+    op.lines.splice(li, 1);
     closePad(true);
-    const firstEmpty = op.slots.findIndex((s) => s.value === null);
-    op.active = firstEmpty;
+    op.active = null;
     $('opError').textContent = '';
     renderSentence();
+    advance();
   }
 
-  // Activate a slot. The number pad only opens when the person taps a number box.
-  function setActive(idx, openNow) {
+  function setActive(li, f, openPad_) {
     const op = state.op;
-    op.active = idx;
+    op.active = { line: li, f };
     renderSentence();
-    if (openNow && idx >= 0 && op.slots[idx].kind === 'num') {
-      const slot = op.slots[idx];
+    if (openPad_ && !ROW_FIELDS.includes(f)) {
+      const line = op.lines[li];
       openPad({
-        text: slot.value === null ? '' : slot.value.toString(),
-        validate: (v) => (op.type === 'mul' && v.isZero() ? 'errZero' : null),
-        onOk: (v) => { slot.value = v; advance(); },
+        text: line[f] === null ? '' : line[f].toString(),
+        allowEmpty: true,
+        validate: (v) => (f === 'a' && v.isZero() ? 'errZero' : null),
+        onOk: (v) => { line[f] = v === null ? (f === 'a' ? F.ONE : null) : v; advance(); },
         onClose: () => renderSentence()
       });
     } else closePad(true);
   }
+
+  // Go to the next box that still needs something: target row, then b, then the other row.
   function advance() {
     const op = state.op;
-    const n = op.slots.length;
-    for (let k = 1; k <= n; k++) {
-      const idx = (Math.max(op.active, 0) + k) % n;
-      if (op.slots[idx].value === null) return setActive(idx, false);
+    if (!op) return;
+    const order = op.type === 'comb' ? ['i', 'b', 'j'] : ['i', 'j'];
+    const start = op.active ? op.active.line : 0;
+    for (let k = 0; k < op.lines.length; k++) {
+      const li = (start + k) % op.lines.length;
+      const f = order.find((x) => op.lines[li][x] === null);
+      if (f) { op.active = { line: li, f }; renderSentence(); return; }
     }
-    setActive(-1, false);
-    $('opApply').focus({ preventScroll: true });
+    op.active = null;
+    renderSentence();
+    if (opValid()) $('opApply').focus({ preventScroll: true });
   }
 
   function onRowClick(r) {
     const op = state.op;
-    if (!op || state.busy || op.active < 0 || op.slots[op.active].kind !== 'row') return;
-    // All rows in one operation must be different (source and every target).
-    const clash = op.slots.some((s, idx) => idx !== op.active && s.kind === 'row' && s.value === r);
+    if (!op || state.busy || !op.active) return;
+    let { line: li, f } = op.active;
+    const line = op.lines[li];
+    // A tap on the matrix while a number box is active fills the row that is still missing.
+    if (!ROW_FIELDS.includes(f)) f = line.i === null ? 'i' : 'j';
+    // Rows that change cannot be used anywhere else in the same operation
+    // (so applying all lines together is the same as applying them one by one).
+    let clash;
+    if (op.type === 'swap') clash = (f === 'i' ? line.j : line.i) === r;
+    else if (f === 'i') clash = op.lines.some((l, k) => (k !== li && l.i === r) || l.j === r);
+    else clash = op.lines.some((l) => l.i === r);
     if (clash) {
       $('opError').textContent = t('errSameRow');
       const el = rowEl(r);
@@ -537,7 +688,8 @@
       return;
     }
     $('opError').textContent = '';
-    op.slots[op.active].value = r;
+    line[f] = r;
+    op.active = { line: li, f };
     advance();
   }
 
@@ -545,32 +697,39 @@
     const rows = $('matrix').querySelectorAll('.mrow');
     rows.forEach((el) => el.classList.remove('chosen', 'chosen2'));
     if (!state.op) return;
-    const rowSlots = state.op.slots.filter((s) => s.kind === 'row');
-    rowSlots.forEach((s, k) => { if (s.value !== null && rowEl(s.value)) rowEl(s.value).classList.add(k === 0 ? 'chosen' : 'chosen2'); });
+    state.op.lines.forEach((l) => {
+      if (l.i !== null && rowEl(l.i)) rowEl(l.i).classList.add('chosen');
+      if (l.j !== null && rowEl(l.j)) rowEl(l.j).classList.add(state.op.type === 'swap' ? 'chosen' : 'chosen2');
+    });
   }
 
-  // The elementary operations described by the panel.
   function buildOps() {
-    const v = state.op.slots.map((s) => s.value);
-    if (state.op.type === 'add') {
-      const ops = [];
-      for (let p = 1; p < v.length; p += 2) ops.push({ type: 'add', i: v[p + 1], j: v[0], k: v[p] }); // L_target ← L_target + k L_source
-      return ops;
-    }
-    if (state.op.type === 'mul') return [{ type: 'mul', i: v[0], k: v[1] }];
-    return [{ type: 'swap', i: v[0], j: v[1] }];
+    const op = state.op;
+    if (op.type === 'swap') return [{ type: 'swap', i: op.lines[0].i, j: op.lines[0].j }];
+    return op.lines.map((l) => {
+      const hasB = l.b !== null && !l.b.isZero();
+      return { type: 'comb', i: l.i, a: l.a, j: hasB ? l.j : null, b: hasB ? l.b : null };
+    });
   }
 
   $('opCancel').addEventListener('click', cancelOp);
-  $('opApply').addEventListener('click', applyOp);
+  $('opApply').addEventListener('mousedown', (e) => e.preventDefault()); // keep typed value until click
+  $('opApply').addEventListener('click', () => {
+    // commit a number that is still being typed
+    const inp = document.activeElement;
+    if (inp && inp.classList && inp.classList.contains('num-input')) {
+      if (!commitNum(Number(inp.dataset.line), inp.dataset.f, inp, true)) return;
+    }
+    applyOp();
+  });
 
   async function applyOp() {
-    if (state.busy || !state.op || !state.op.slots.every((s) => s.value !== null)) return;
+    if (state.busy || !state.op || !opValid()) return;
     const ops = buildOps();
     const prev = current();
-    // Several "add" operations share the source row, whose values never change,
-    // and their target rows are all different; so applying them one after the
-    // other is the same as applying them simultaneously.
+    // The rows that change are all different and none of them is used as the
+    // "other row" of a line, so applying the lines one after the other is the
+    // same as applying them simultaneously.
     let M;
     try { M = ops.reduce((A, op) => Ops.apply(A, op), prev.M); } catch (e) { $('opError').textContent = t(e.message === 'same-row' ? 'errSameRow' : 'errZero'); return; }
     const ids = prev.ids.slice();
@@ -581,8 +740,7 @@
     cancelOp();
     state.busy = true;
     try {
-      if (type === 'add') await animateAdd(ops, M);
-      else if (type === 'mul') await animateMul(ops[0], M);
+      if (type === 'comb') await animateComb(ops, M);
       state.steps.push({ M, ids, ops });
       renderMatrix(type === 'swap', SWAP_MS);
       if (type === 'swap') await wait(D(SWAP_MS + 30));
@@ -642,15 +800,6 @@
     badge.remove();
   }
 
-  async function animateMul(op, newM) {
-    const row = rowEl(op.i);
-    row.classList.add('chosen');
-    const cells = [...row.querySelectorAll('.cell')];
-    await sweep(row, cells, op.k, newM[op.i].map(fracHTML), 650 + 90 * cells.length);
-    flashRow(row);
-    await wait(D(250));
-  }
-
   // A floating copy of a matrix row, placed exactly over it.
   function makeGhost(src) {
     const sb = stageBox();
@@ -685,56 +834,55 @@
     return frames;
   }
 
-  // ops: one or more "add" operations sharing the same source row.
-  async function animateAdd(ops, newM) {
-    const srcIdx = ops[0].j;
-    const src = rowEl(srcIdx);
+  // Li' = a·Li + b·Lj, for each line in turn: first the constant a crosses row i,
+  // then a copy of row j jumps out, is multiplied by b and falls onto row i.
+  async function animateComb(ops, newM) {
+    const M0 = current().M;
+    for (const op of ops) {
+      const dst = rowEl(op.i);
+      dst.classList.add('chosen');
+      if (!op.a.isOne()) {
+        const cells = [...dst.querySelectorAll('.cell')];
+        await sweep(dst, cells, op.a, M0[op.i].map((x) => fracHTML(op.a.mul(x))), 600 + 80 * cells.length);
+        if (op.j === null) [...dst.querySelectorAll('.cell')].forEach((c, idx) => { c.innerHTML = fracHTML(newM[op.i][idx]); });
+        flashRow(dst);
+        await wait(D(220));
+      }
+      if (op.j !== null) await dropMultiple(op, newM, M0);
+    }
+  }
+
+  async function dropMultiple(op, newM, M0) {
+    const src = rowEl(op.j), dst = rowEl(op.i);
     const sr = src.getBoundingClientRect();
     const mr = $('matrix').getBoundingClientRect();
-    src.classList.add('chosen');
-    ops.forEach((op) => rowEl(op.i).classList.add('chosen2'));
-
-    // 1. A copy of the source row lifts off and jumps to the side of the matrix
-    //    (or below it, on narrow screens).
-    const base = makeGhost(src);
+    src.classList.add('chosen2');
+    const g = makeGhost(src);
     const sideX = mr.right - sr.left + 40;
     const fitsSide = sr.right + sideX + 8 < document.documentElement.clientWidth;
     const park = fitsSide ? { x: sideX, y: 0 } : { x: 0, y: mr.bottom - sr.top + 26 };
-    await base.ghost.animate([
+    await g.ghost.animate([
       { transform: 'none' },
       { transform: `translate(${park.x * 0.5}px, ${park.y * 0.5 - 28}px) scale(1.04)`, offset: 0.5 },
       { transform: `translate(${park.x}px, ${park.y}px)` }
     ], { duration: D(560), easing: 'cubic-bezier(.3,.7,.3,1)', fill: 'forwards' }).finished;
-    base.ghost.getAnimations().forEach((a) => a.cancel());
-    base.ghost.style.transform = `translate(${park.x}px, ${park.y}px)`;
-
-    for (const op of ops) {
-      // 2. A copy of it is multiplied by k (the parked copy stays for the next target)...
-      const g = ops.length > 1 ? makeGhost(src) : base;
-      if (g !== base) g.ghost.style.transform = base.ghost.style.transform;
-      await wait(D(100));
-      await sweep(g.ghost, g.cells, op.k, current().M[srcIdx].map((x) => fracHTML(op.k.mul(x))), 450 + 75 * g.cells.length);
-      await wait(D(120));
-
-      // 3. ...and falls onto the target row along the outside of the matrix:
-      //    first down (or up) beside the matrix, then sideways into place.
-      const dst = rowEl(op.i);
-      const toY = dst.getBoundingClientRect().top - sr.top;
-      const control = { x: park.x, y: toY };
-      await g.ghost.animate(curveFrames(park, control, { x: 0, y: toY }, 24),
-        { duration: D(720), easing: 'linear', fill: 'forwards' }).finished;
-      [...dst.querySelectorAll('.cell')].forEach((c, idx) => {
-        c.innerHTML = fracHTML(newM[op.i][idx]);
-        c.animate([{ transform: 'translateX(-6px)', opacity: 0.2 }, { transform: 'none', opacity: 1 }], { duration: D(380), easing: 'cubic-bezier(.2,.8,.2,1)' });
-      });
-      flashRow(dst);
-      await g.ghost.animate([{ opacity: 1 }, { opacity: 0, transform: `translate(0px, ${toY}px) scale(.96)` }], { duration: D(240), fill: 'forwards' }).finished;
-      g.ghost.remove();
-    }
-    if (base.ghost.isConnected) {
-      await base.ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: D(240), fill: 'forwards' }).finished;
-      base.ghost.remove();
-    }
+    g.ghost.getAnimations().forEach((a) => a.cancel());
+    g.ghost.style.transform = `translate(${park.x}px, ${park.y}px)`;
+    await wait(D(100));
+    await sweep(g.ghost, g.cells, op.b, M0[op.j].map((x) => fracHTML(op.b.mul(x))), 450 + 75 * g.cells.length);
+    await wait(D(120));
+    // falls along the outside of the matrix, then slides into the row
+    const toY = dst.getBoundingClientRect().top - sr.top;
+    await g.ghost.animate(curveFrames(park, { x: park.x, y: toY }, { x: 0, y: toY }, 24),
+      { duration: D(720), easing: 'linear', fill: 'forwards' }).finished;
+    [...dst.querySelectorAll('.cell')].forEach((c, idx) => {
+      c.innerHTML = fracHTML(newM[op.i][idx]);
+      c.animate([{ transform: 'translateX(-6px)', opacity: 0.2 }, { transform: 'none', opacity: 1 }], { duration: D(380), easing: 'cubic-bezier(.2,.8,.2,1)' });
+    });
+    flashRow(dst);
+    await g.ghost.animate([{ opacity: 1 }, { opacity: 0, transform: `translate(0px, ${toY}px) scale(.96)` }], { duration: D(240), fill: 'forwards' }).finished;
+    g.ghost.remove();
+    src.classList.remove('chosen2');
     await wait(D(150));
   }
 
@@ -832,8 +980,45 @@
   }
   const toM = (rows) => rows.map((r) => r.map((x) => F.parse(x)));
 
+  // "How to tell": a small flow chart. Check 1 and 2 -> row echelon form -> check 3 and 4 -> reduced.
+  let flowObserver = null;
+  function renderFlow() {
+    const c = t('condShort');
+    const check = (a, b) => '<div class="f-check"><div class="f-h">' + fill(t('flowCheck'), { a, b }) + '</div>' +
+      '<ol start="' + a + '"><li>' + c[a - 1] + '</li><li>' + c[b - 1] + '</li></ol></div>';
+    const no = (cls, text) => '<div class="f-branch"><div class="f-harr"><span class="f-lab">' + t('flowNo') + '</span><span class="f-line"></span></div>' +
+      '<div class="f-out ' + cls + '">' + text + '</div></div>';
+    const down = (label) => '<div class="f-down"><span class="f-vline"></span>' + (label ? '<span class="f-lab">' + label + '</span>' : '') + '</div>';
+    const flow = $('howFlow');
+    flow.innerHTML =
+      check(1, 2) + no('none', t('flowNone')) +
+      down(t('flowYes')) +
+      '<div class="f-out ref main">' + t('flowRef') + '</div>' +
+      down('') +
+      check(3, 4) + no('refonly', t('flowRefOnly')) +
+      down(t('flowYes')) +
+      '<div class="f-out rref main">' + t('flowRref') + '</div>';
+    if (reduceMotion || !('IntersectionObserver' in window)) return;
+    // the blocks appear one after the other the first time the chart is on screen
+    if (flowObserver) flowObserver.disconnect();
+    const parts = [...flow.children];
+    if (flow.dataset.shown) return;
+    parts.forEach((el) => { el.style.opacity = 0; });
+    flowObserver = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      flowObserver.disconnect();
+      flow.dataset.shown = '1';
+      parts.forEach((el, k) => {
+        el.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
+          { duration: 380, delay: 140 * k, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'backwards' });
+        el.style.opacity = '';
+      });
+    }, { threshold: 0.25 });
+    flowObserver.observe(flow);
+  }
+
   function renderEchelonPage() {
-    $('howSteps').innerHTML = t('howSteps').map((x) => '<li>' + x + '</li>').join('');
+    renderFlow();
     const ex = window.Echelon.EXAMPLES;
     const section = (id, title, intro, conds, note, examples, non, why) =>
       '<section class="learn-sec" id="' + id + '">' +
@@ -852,17 +1037,13 @@
   }
 
   // ---------------- Tutorial ----------------
-  const tut = { ex: 0, slide: 0 };
+  const tut = { ex: 0, slide: 0, timers: [] };
 
+  // One slide per check, in order, stopping at the first one that fails.
   function tutSlides(st) {
-    const s = ['intro', 1];
-    if (!st[0].ok) return s.concat('endNone');
-    s.push(2);
-    if (!st[1].ok) return s.concat('endNone');
-    s.push(3);
-    if (!st[2].ok) return s.concat('endRef');
-    s.push(4);
-    return s.concat(st[3].ok ? 'endRref' : 'endRef');
+    const s = ['intro'];
+    for (let k = 1; k <= 4; k++) { s.push(k); if (!st[k - 1].ok) break; }
+    return s;
   }
   const listRows = (rows) => {
     const r = rows.map((x) => x + 1);
@@ -876,23 +1057,14 @@
     tut.slide = Math.min(tut.slide, slides.length - 1);
     const cur = slides[tut.slide];
     // the last check that is shown on this slide (0 = none yet)
-    const lastCheck = typeof cur === 'number' ? cur : cur === 'intro' ? 0 : slides[slides.length - 2];
+    const lastCheck = cur === 'intro' ? 0 : cur;
+    tut.timers.forEach(clearTimeout);
+    tut.timers = [];
 
     // Example tabs
     $('exTabs').innerHTML = window.Echelon.TUTORIAL.map((_, i) =>
       '<button type="button" role="tab" aria-selected="' + (i === tut.ex) + '" data-ex="' + i + '">' + t('example') + ' ' + (i + 1) + '</button>').join('');
     $('exTabs').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { tut.ex = Number(b.dataset.ex); tut.slide = 0; renderTutorial(true); }));
-
-    // Step pills
-    const failAt = st.findIndex((x) => !x.ok);
-    const stop = failAt === -1 ? 4 : (failAt <= 1 ? failAt : (failAt === 2 ? 2 : 3)) + 1; // checks actually done
-    $('stepPills').innerHTML = t('stepNames').map((name, i) => {
-      let cls = 'pending';
-      if (i + 1 < lastCheck || (i + 1 === lastCheck && typeof cur !== 'number')) cls = st[i].ok ? 'ok' : 'bad';
-      if (i + 1 === lastCheck && typeof cur === 'number') cls = 'current ' + (st[i].ok ? 'ok' : 'bad');
-      if (typeof cur === 'string' && cur !== 'intro' && i + 1 > stop) cls = 'skip';
-      return '<li class="' + cls + '"><span class="num">' + (i + 1) + '</span><span class="nm">' + name + '</span></li>';
-    }).join('');
 
     // Matrix
     const box = $('tutMatrix');
@@ -982,25 +1154,104 @@
       }
     }
 
-    // Text
-    let text = '';
-    if (cur === 'intro') text = '<p>' + t('tIntro') + '</p>';
-    else if (cur === 1) text = '<h4>' + t('t1Title') + '</h4><p>' + (!st[0].ok ? fill(t('t1Bad'), { z: st[0].zeroRow + 1, r: st[0].row + 1 }) : st[0].zeroRows.length ? t('t1Ok') : t('t1None')) + '</p>';
-    else if (cur === 2) text = '<h4>' + t('t2Title') + '</h4><p>' + (st[1].ok ? t('t2Ok') : fill(t('t2Bad'), { r: st[1].row + 1, p: st[1].prev + 1 })) + '</p>';
-    else if (cur === 3) text = '<p class="sofar">' + t('tRefSoFar') + '</p><h4>' + t('t3Title') + '</h4><p>' + (st[2].ok ? t('t3Ok') : fill(t(st[2].notOne.length > 1 ? 't3BadMany' : 't3Bad'), { rows: listRows(st[2].notOne) })) + '</p>';
-    else if (cur === 4) text = '<h4>' + t('t4Title') + '</h4><p>' + (st[3].ok ? t('t4Ok') : t('t4Bad')) + '</p>';
-    else text = '<p class="end ' + cur + '">' + t({ endNone: 'tEndNone', endRef: 'tEndRef', endRref: 'tEndRref' }[cur]) + '</p>';
-    $('tutText').innerHTML = text;
-    if (animate && !reduceMotion) $('tutText').animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'ease-out' });
-    if (cur === 'endRref' && animate && !reduceMotion) {
-      box.querySelector('.smatrix').animate([{ transform: 'none' }, { transform: 'scale(1.06) rotate(-1.5deg)' }, { transform: 'scale(.98) rotate(1deg)' }, { transform: 'none' }], { duration: 800, easing: 'ease-in-out' });
-    }
+    renderTutBoxes(M, st, slides, lastCheck, animate);
 
     $('tutPrev').disabled = tut.slide === 0 && tut.ex === 0;
     const atEnd = tut.slide === slides.length - 1;
     $('tutNext').textContent = atEnd ? (tut.ex < window.Echelon.TUTORIAL.length - 1 ? t('nextExample') : t('practice')) : t('next');
     tut.slides = slides.length;
   }
+  // The two question boxes under the matrix: "Is it in row echelon form?" (checks 1 and 2)
+  // and, only when the answer is yes, "Is it reduced?" (checks 3 and 4).
+  function renderTutBoxes(M, st, slides, lastCheck, animate) {
+    const boxes = $('tutBoxes');
+    const moving = animate && !reduceMotion;
+    const later = (ms, fn) => { if (moving) tut.timers.push(setTimeout(fn, D(ms))); else fn(); };
+    const failAt = st.findIndex((x) => !x.ok);                  // -1: every check holds
+    const piv = st[1].pivots.length;
+    const explain = (k) => {
+      if (k === 1) return !st[0].ok ? fill(t('t1Bad'), { z: st[0].zeroRow + 1, r: st[0].row + 1 }) : st[0].zeroRows.length ? t('t1Ok') : t('t1None');
+      if (k === 2) return st[1].ok ? t('t2Ok') : fill(t('t2Bad'), { r: st[1].row + 1, p: st[1].prev + 1 });
+      if (k === 3) return st[2].ok ? t('t3Ok') : fill(t(st[2].notOne.length > 1 ? 't3BadMany' : 't3Bad'), { rows: listRows(st[2].notOne) });
+      return st[3].ok ? t('t4Ok') : t('t4Bad');
+    };
+    // how long the matrix animation of each check takes, so that the text comes after it
+    const revealAt = [0, 250 * st[0].zeroRows.length + (st[0].ok ? 250 : 650), 380 * piv + (st[1].ok ? 1050 : 1450), 350 * piv + 250, 600 * piv + 300][lastCheck];
+    const box1Ok = st[0].ok && st[1].ok;
+    const showBox2 = lastCheck >= 2 && box1Ok;
+    const qBox = (id, title, ks) => '<div class="qbox" id="' + id + '"><div class="qhead"><span class="qt">' + title + '</span>' +
+      '<span class="qans"></span></div><ol class="conds">' +
+      ks.map((k) => '<li class="cond" data-k="' + k + '"><span class="num">' + k + '</span><div class="cbody"><div class="ct">' + t('t' + k + 'Title') + '</div><div class="cx"></div></div></li>').join('') +
+      '</ol></div>';
+    boxes.innerHTML = (lastCheck === 0 ? '<p class="tut-hint">' + t('tIntro') + '</p>' : '') +
+      qBox('qb1', t('qRef'), [1, 2]) + (showBox2 ? qBox('qb2', t('qRref'), [3, 4]) : '') +
+      '<p class="tut-concl" hidden></p>';
+    const li = (k) => boxes.querySelector('.cond[data-k="' + k + '"]');
+    const fadeIn = (el, ms) => { if (moving) el.animate([{ opacity: 0, transform: 'translateY(-4px)' }, { opacity: 1, transform: 'none' }], { duration: ms || 300, easing: 'ease-out' }); };
+    const setCond = (k, cls, text, anim_) => {
+      const el = li(k);
+      el.className = 'cond ' + cls;
+      el.querySelector('.cx').innerHTML = text;
+      if (anim_) fadeIn(el.querySelector('.cx'));
+    };
+    const decide = (id, ok, ks, anim_) => {
+      const b = $(id);
+      b.classList.add(ok ? 'ok' : 'bad');
+      b.querySelector('.qans').innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + (ok ? 'M5 12.5l4.5 4.5L19 7.5' : 'M7 7l10 10M17 7L7 17') + '"/></svg>' + t(ok ? 'yes' : 'no');
+      // conditions after the one that failed are not needed
+      if (!ok) ks.forEach((k) => { if (k > failAt + 1) setCond(k, 'skip', t('tSkip'), anim_); });
+      if (!anim_) return;
+      b.animate(ok
+        ? [{ transform: 'none' }, { transform: 'scale(1.035)', offset: 0.4 }, { transform: 'none' }]
+        : [{ transform: 'none' }, { transform: 'translateX(-5px)' }, { transform: 'translateX(5px)' }, { transform: 'none' }],
+      { duration: ok ? 520 : 380, easing: 'ease-in-out' });
+      b.querySelector('.qans').animate([{ transform: 'scale(.4)', opacity: 0 }, { transform: 'scale(1.15)', offset: 0.6 }, { transform: 'none', opacity: 1 }], { duration: 420, easing: 'ease-out' });
+    };
+
+    if (lastCheck === 0) return;
+    // conditions already checked on earlier slides
+    for (let k = 1; k < lastCheck; k++) setCond(k, st[k - 1].ok ? 'ok' : 'bad', explain(k), false);
+    if (showBox2 && lastCheck > 2) decide('qb1', true, [1, 2], false);
+    // the condition checked now
+    li(lastCheck).className = 'cond current';
+    const ok = st[lastCheck - 1].ok;
+    later(revealAt, () => setCond(lastCheck, ok ? 'ok' : 'bad', explain(lastCheck), moving));
+    const tDecide = revealAt + 500;
+    const final = tut.slide === slides.length - 1;
+    const showConcl = (ms) => later(ms, () => {
+      const p = boxes.querySelector('.tut-concl');
+      const kind = failAt === -1 ? 'endRref' : failAt <= 1 ? 'endNone' : 'endRef';
+      p.className = 'tut-concl end ' + kind;
+      p.innerHTML = t({ endNone: 'tEndNone', endRef: 'tEndRef', endRref: 'tEndRref' }[kind]);
+      p.hidden = false;
+      fadeIn(p, 350);
+      if (moving) $('tutNext').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      if (kind === 'endRref' && moving) {
+        $('tutMatrix').querySelector('.smatrix').animate([{ transform: 'none' }, { transform: 'scale(1.06) rotate(-1.5deg)' }, { transform: 'scale(.98) rotate(1deg)' }, { transform: 'none' }], { duration: 800, easing: 'ease-in-out' });
+      }
+    });
+    if (lastCheck <= 2) {
+      if (lastCheck === 2 || !ok) {
+        later(tDecide, () => decide('qb1', box1Ok, [1, 2], moving));
+        if (showBox2) {
+          const b2 = $('qb2');
+          b2.hidden = true;
+          later(tDecide + 700, () => {
+            b2.hidden = false;
+            if (moving) $('tutNext').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            if (moving) b2.animate([{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.2,.8,.2,1)' });
+          });
+        }
+      }
+      if (final) showConcl(tDecide + 450);
+      return;
+    }
+    if (lastCheck === 4 || !ok) {
+      later(tDecide, () => decide('qb2', failAt === -1, [3, 4], moving));
+      showConcl(tDecide + 450);
+    }
+  }
+
   $('tutNext').addEventListener('click', () => {
     if (tut.slide < tut.slides - 1) tut.slide++;
     else if (tut.ex < window.Echelon.TUTORIAL.length - 1) { tut.ex++; tut.slide = 0; }
@@ -1017,7 +1268,13 @@
     if (e.key === 'ArrowRight') $('tutNext').click();
     else if (e.key === 'ArrowLeft' && !$('tutPrev').disabled) $('tutPrev').click();
   });
-  window.addEventListener('resize', () => { if (!$('tutorial').hidden) renderTutorial(false); });
+  // (only when the width changes: on phones scrolling shows/hides the address bar, which changes the height)
+  let lastWidth = window.innerWidth;
+  window.addEventListener('resize', () => {
+    if (window.innerWidth === lastWidth) return;
+    lastWidth = window.innerWidth;
+    if (!$('tutorial').hidden) renderTutorial(false);
+  });
 
   // ---------------- Practice (flash cards) ----------------
   // Two questions per card: "Is it in row echelon form?" and, only if it is,

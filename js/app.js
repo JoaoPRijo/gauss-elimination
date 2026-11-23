@@ -1183,7 +1183,7 @@
       '<span class="qans"></span></div><ol class="conds">' +
       ks.map((k) => '<li class="cond" data-k="' + k + '"><span class="num">' + k + '</span><div class="cbody"><div class="ct">' + t('t' + k + 'Title') + '</div><div class="cx"></div></div></li>').join('') +
       '</ol></div>';
-    boxes.innerHTML = (lastCheck === 0 ? '<p class="tut-hint">' + t('tIntro') + '</p>' : '') +
+    boxes.innerHTML =
       qBox('qb1', t('qRef'), [1, 2]) + (showBox2 ? qBox('qb2', t('qRref'), [3, 4]) : '') +
       '<p class="tut-concl" hidden></p>';
     const li = (k) => boxes.querySelector('.cond[data-k="' + k + '"]');

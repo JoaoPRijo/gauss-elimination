@@ -486,7 +486,6 @@ input.slot.num-input.invalid, .entry-input.invalid { border-color: var(--error) 
 
 /* tutorial question boxes */
 .tut-boxes { max-width: 520px; margin: 8px auto 0; display: grid; gap: 12px; min-height: 150px; align-content: start; }
-.tut-hint { margin: 0; text-align: center; color: var(--muted); font-size: .92rem; }
 .qbox { border: 1.5px solid var(--line); border-radius: 14px; background: var(--surface); padding: 10px 14px 10px; transition: border-color .35s, background-color .35s; }
 .qbox[hidden] { display: none; }
 .qhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 650; }
